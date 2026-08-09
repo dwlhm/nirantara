@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App & General -->
+    <string name="app_name">Velocity</string>
+    <string name="search_hint">Search apps…</string>
+    <string name="cancel">Cancel</string>
+    <string name="close">Close</string>
+    <string name="launch_app">Launch App</string>
+    <string name="unhide">Unhide</string>
+    <string name="work_profile_tag">Work</string>
+
+    <!-- Focus Modes -->
+    <string name="mode_all">All</string>
+    <string name="mode_work">Work</string>
+    <string name="mode_personal">Personal</string>
+    <string name="favorites_title">Favorites</string>
+
+    <!-- Friction Gate -->
+    <string name="access_non_focus_apps">Access Non-Focus Apps (%1$d)</string>
+    <string name="access_non_focus_apps_default">Access Non-Focus Apps</string>
+    <string name="friction_check_title">Mindful Pause</string>
+    <string name="friction_check_text">Friction Check: Take a breath before switching context</string>
+
+    <!-- App Options Bottom Sheet -->
+    <string name="options_title">App Options</string>
+    <string name="pin_to_favorites">Pin to Favorites</string>
+    <string name="unpin_from_favorites">Unpin from Favorites</string>
+    <string name="assign_focus_mode">Assign Focus Mode</string>
+    <string name="focus_all">All Modes</string>
+    <string name="focus_work">Work Only</string>
+    <string name="focus_personal">Personal Only</string>
+    <string name="app_info">App Info</string>
+    <string name="uninstall">Uninstall</string>
+    <string name="hide_app">Hide App</string>
+
+    <!-- Hidden Apps Dialog -->
+    <string name="hidden_apps">Hidden Apps</string>
+    <string name="hidden_apps_title">Manage Hidden Apps</string>
+    <string name="no_hidden_apps">No hidden apps</string>
+
+    <!-- Settings -->
+    <string name="title_settings">Velocity Settings</string>
+    <string name="settings_title">Velocity Settings</string>
+    <string name="theme_title">Theme</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="theme_amoled">AMOLED Pure Black</string>
+    <string name="display_mode_title">Display Mode</string>
+    <string name="display_mode_grid">Compact Grid</string>
+    <string name="display_mode_text">Minimalist Text List</string>
+    <string name="grid_columns_title">Grid Columns</string>
+    <string name="columns_3">3 Columns</string>
+    <string name="columns_4">4 Columns</string>
+    <string name="columns_5">5 Columns</string>
+    <string name="set_as_default_launcher">Set Velocity as Default Launcher</string>
+    <string name="manage_hidden_apps">Manage Hidden Apps</string>
+</resources>
