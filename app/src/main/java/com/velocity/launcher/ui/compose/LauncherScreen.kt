@@ -58,8 +58,10 @@ private data class PendingWidgetConfig(
     val folderId: String,
     val cardId: String,
     val appWidgetId: Int,
-    val providerInfo: AppWidgetProviderInfo
+    val providerInfo: AppWidgetProviderInfo,
+    val oldAppWidgetId: Int? = null
 )
+
 
 private enum class ResizeCorner {
     TOP_START, TOP_END, BOTTOM_START, BOTTOM_END
@@ -103,11 +105,13 @@ fun LauncherScreen(
             if (result.resultCode == Activity.RESULT_OK) {
                 val (reqWidth, reqHeight) = calculateWidgetCellSize(pending.providerInfo, cellWidthDp, cellHeightDp)
                 viewModel.setWidgetConfigured(pending.folderId, pending.cardId, pending.appWidgetId, reqWidth, reqHeight)
+                pending.oldAppWidgetId?.let { appWidgetHost.deleteAppWidgetId(it) }
             } else {
                 appWidgetHost.deleteAppWidgetId(pending.appWidgetId)
             }
             pendingWidgetConfig = null
         }
+
     }
 
     val bindLauncher = rememberLauncherForActivityResult(
@@ -125,6 +129,7 @@ fun LauncherScreen(
                 } else {
                     val (reqWidth, reqHeight) = calculateWidgetCellSize(pending.providerInfo, cellWidthDp, cellHeightDp)
                     viewModel.setWidgetConfigured(pending.folderId, pending.cardId, pending.appWidgetId, reqWidth, reqHeight)
+                    pending.oldAppWidgetId?.let { appWidgetHost.deleteAppWidgetId(it) }
                     pendingWidgetConfig = null
                 }
             } else {
@@ -132,9 +137,11 @@ fun LauncherScreen(
                 pendingWidgetConfig = null
             }
         }
+
     }
 
-    val onWidgetSelected: (String, String, AppModel, AppWidgetProviderInfo) -> Unit = { folderId, cardId, app, providerInfo ->
+    val onWidgetSelected: (String, String, AppModel, AppWidgetProviderInfo, Int?) -> Unit = { folderId, cardId, app, providerInfo, oldAppWidgetId ->
+
         val appWidgetId = appWidgetHost.allocateAppWidgetId()
         val bindAllowed = appWidgetManager.bindAppWidgetIdIfAllowed(
             appWidgetId,
@@ -145,7 +152,8 @@ fun LauncherScreen(
 
         if (bindAllowed) {
             if (providerInfo.configure != null) {
-                pendingWidgetConfig = PendingWidgetConfig(folderId, cardId, appWidgetId, providerInfo)
+                pendingWidgetConfig = PendingWidgetConfig(folderId, cardId, appWidgetId, providerInfo, oldAppWidgetId)
+
                 val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).apply {
                     component = providerInfo.configure
                     putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
@@ -156,7 +164,8 @@ fun LauncherScreen(
                 viewModel.setWidgetConfigured(folderId, cardId, appWidgetId, reqWidth, reqHeight)
             }
         } else {
-            pendingWidgetConfig = PendingWidgetConfig(folderId, cardId, appWidgetId, providerInfo)
+            pendingWidgetConfig = PendingWidgetConfig(folderId, cardId, appWidgetId, providerInfo, oldAppWidgetId)
+
             val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_BIND).apply {
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, providerInfo.provider)
@@ -271,7 +280,8 @@ fun LauncherScreen(
                     val currentCardId = card.id
                     val currentApp = card.app
                     widgetPickerTarget = null
-                    onWidgetSelected(currentFolderId, currentCardId, currentApp, providerInfo)
+                    onWidgetSelected(currentFolderId, currentCardId, currentApp, providerInfo, card.appWidgetId)
+
                 }
             )
         }
@@ -579,18 +589,36 @@ fun CardItem(
                                 appWidgetManager.getAppWidgetInfo(card.appWidgetId)
                             }
                             if (providerInfo != null) {
-                                AndroidView(
-                                    factory = { context ->
-                                        appWidgetHost.createView(context, card.appWidgetId, providerInfo)
-                                    },
-                                    update = { hostView ->
-                                        hostView.setAppWidget(card.appWidgetId, providerInfo)
-                                    },
-                                    modifier = Modifier.fillMaxSize()
-                                )
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    key(card.appWidgetId) {
+                                        AndroidView(
+                                            factory = { context ->
+                                                appWidgetHost.createView(context, card.appWidgetId, providerInfo)
+                                            },
+                                            update = { hostView ->
+                                                hostView.setAppWidget(card.appWidgetId, providerInfo)
+                                            },
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
+                                    if (isEditing) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color.Black.copy(alpha = 0.5f))
+                                                .clickable { onConfigureWidget() },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            OutlinedButton(onClick = { onConfigureWidget() }) {
+                                                Text("Replace Widget", fontSize = 12.sp, color = Color.White)
+                                            }
+                                        }
+                                    }
+                                }
                             } else {
                                 Text("Widget Unavailable", color = Color.White.copy(alpha = 0.5f))
                             }
+
                         } else {
                             OutlinedButton(onClick = { onConfigureWidget() }) {
                                 Text("Configure Widget", fontSize = 12.sp, color = Color.White)

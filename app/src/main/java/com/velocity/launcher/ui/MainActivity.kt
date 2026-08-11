@@ -1,6 +1,7 @@
 package com.velocity.launcher.ui
 
 import android.appwidget.AppWidgetHost
+import com.velocity.launcher.ui.widget.ScrollAwareAppWidgetHost
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Bundle
@@ -33,7 +34,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         
         appWidgetManager = AppWidgetManager.getInstance(this)
-        appWidgetHost = AppWidgetHost(this, APPWIDGET_HOST_ID)
+        appWidgetHost = ScrollAwareAppWidgetHost(this, APPWIDGET_HOST_ID)
 
         viewModel = ViewModelProvider(
             this, 
