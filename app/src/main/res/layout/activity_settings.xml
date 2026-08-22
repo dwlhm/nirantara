@@ -6,7 +6,7 @@
     android:fitsSystemWindows="true"
     android:orientation="vertical">
 
-    <!-- Settings Top Bar / Header -->
+    <!-- Settings Header -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="56dp"
@@ -54,11 +54,11 @@
                 android:orientation="vertical">
 
                 <RadioButton
-                    android:id="@+id/rb_theme_light"
+                    android:id="@+id/rb_theme_adaptive"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:paddingVertical="8dp"
-                    android:text="@string/theme_light"
+                    android:text="@string/theme_adaptive"
                     android:textColor="?attr/colorOnSurface"
                     android:textSize="16sp" />
 
@@ -72,11 +72,29 @@
                     android:textSize="16sp" />
 
                 <RadioButton
-                    android:id="@+id/rb_theme_amoled"
+                    android:id="@+id/rb_theme_light"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:paddingVertical="8dp"
-                    android:text="@string/theme_amoled"
+                    android:text="@string/theme_light"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp" />
+
+                <RadioButton
+                    android:id="@+id/rb_theme_system"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingVertical="8dp"
+                    android:text="@string/theme_system"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp" />
+
+                <RadioButton
+                    android:id="@+id/rb_theme_solid_color"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingVertical="8dp"
+                    android:text="@string/theme_solid_color"
                     android:textColor="?attr/colorOnSurface"
                     android:textSize="16sp" />
             </RadioGroup>
@@ -87,37 +105,46 @@
                 android:layout_marginVertical="16dp"
                 android:background="@color/divider" />
 
-            <!-- Section 2: Display Mode -->
+            <!-- Section 2: Scrollbar Position -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="8dp"
-                android:text="@string/display_mode_title"
+                android:text="@string/scrollbar_position_title"
                 android:textColor="?attr/colorPrimary"
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
             <RadioGroup
-                android:id="@+id/rg_display_mode"
+                android:id="@+id/rg_scrollbar_pos"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
                 <RadioButton
-                    android:id="@+id/rb_mode_grid"
+                    android:id="@+id/rb_pos_right"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:paddingVertical="8dp"
-                    android:text="@string/display_mode_grid"
+                    android:text="@string/scrollbar_right"
                     android:textColor="?attr/colorOnSurface"
                     android:textSize="16sp" />
 
                 <RadioButton
-                    android:id="@+id/rb_mode_text"
+                    android:id="@+id/rb_pos_left"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:paddingVertical="8dp"
-                    android:text="@string/display_mode_text"
+                    android:text="@string/scrollbar_left"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="16sp" />
+
+                <RadioButton
+                    android:id="@+id/rb_pos_both"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingVertical="8dp"
+                    android:text="@string/scrollbar_both"
                     android:textColor="?attr/colorOnSurface"
                     android:textSize="16sp" />
             </RadioGroup>
@@ -128,49 +155,15 @@
                 android:layout_marginVertical="16dp"
                 android:background="@color/divider" />
 
-            <!-- Section 3: Grid Column Count -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:text="@string/grid_columns_title"
-                android:textColor="?attr/colorPrimary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <RadioGroup
-                android:id="@+id/rg_columns"
+            <!-- Section 3: Haptic Feedback -->
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switch_haptics"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <RadioButton
-                    android:id="@+id/rb_cols_3"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/columns_3"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textSize="15sp" />
-
-                <RadioButton
-                    android:id="@+id/rb_cols_4"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/columns_4"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textSize="15sp" />
-
-                <RadioButton
-                    android:id="@+id/rb_cols_5"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/columns_5"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textSize="15sp" />
-            </RadioGroup>
+                android:paddingVertical="8dp"
+                android:text="@string/haptics_title"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="16sp" />
 
             <View
                 android:layout_width="match_parent"
@@ -178,7 +171,6 @@
                 android:layout_marginVertical="16dp"
                 android:background="@color/divider" />
 
-            <!-- Section 4: Hidden Apps Manager Button -->
             <!-- Section 4: Actions -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_set_default_launcher"
@@ -188,15 +180,7 @@
                 android:layout_marginTop="8dp"
                 android:text="@string/set_as_default_launcher"
                 android:textSize="16sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_hidden_apps"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:layout_marginTop="12dp"
-                android:text="@string/manage_hidden_apps"
-                android:textSize="16sp" />
         </LinearLayout>
     </ScrollView>
 </LinearLayout>
+

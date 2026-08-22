@@ -1,158 +1,809 @@
 package com.velocity.launcher.ui.compose
 
 import android.app.Application
+import android.appwidget.AppWidgetHost
 import android.content.pm.ShortcutInfo
+import android.net.Uri
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.velocity.launcher.data.AppModel
+import com.velocity.launcher.data.AppNotificationModel
 import com.velocity.launcher.data.AppRepository
+import com.velocity.launcher.data.BackgroundType
+import com.velocity.launcher.data.BatteryMonitor
+import com.velocity.launcher.data.ColorTone
+import com.velocity.launcher.data.LauncherNotificationListenerService
+import com.velocity.launcher.data.PreferencesManager
+import com.velocity.launcher.data.ScrollbarPosition
+import com.velocity.launcher.data.ScrollbarVerticalAlignment
+import com.velocity.launcher.data.SolidColorPreset
+import com.velocity.launcher.data.ThemeMode
+import com.velocity.launcher.data.TopSpacingMode
+import com.velocity.launcher.data.WallpaperColorExtractor
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
+
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = AppRepository(application)
+    private val preferencesManager = PreferencesManager(application)
+    private val batteryMonitor = BatteryMonitor(application)
 
     private val _state = MutableStateFlow(LauncherState())
     val state: StateFlow<LauncherState> = _state.asStateFlow()
 
     init {
+        initBatteryMonitoring()
+        initNotificationMonitoring()
         loadApps()
     }
 
-    private fun loadApps() {
+    private fun initBatteryMonitoring() {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true) }
-            val apps = repository.loadApps()
-            
-            // For the sake of the concept brief, we'll divide apps into some arbitrary folders
-            // and keep a few in the neutral area.
-            
-            val neutralCount = (apps.size * 0.1).toInt().coerceAtMost(5)
-            val neutralApps = apps.take(neutralCount)
-            val remainingApps = apps.drop(neutralCount)
-            
-            val categories = listOf("Communication", "Media", "Work", "Games", "System", "Utilities", "Uncategorized")
-            
-            val folders = mutableListOf<FolderState>()
-            val appsPerFolder = if (categories.isNotEmpty()) remainingApps.size / categories.size else remainingApps.size
-            
-            categories.forEachIndexed { index, name ->
-                val folderApps = if (index == categories.size - 1) {
-                    remainingApps.drop(index * appsPerFolder)
-                } else {
-                    remainingApps.drop(index * appsPerFolder).take(appsPerFolder)
+            batteryMonitor.batteryState.collectLatest { battery ->
+                _state.update { it.copy(batteryState = battery) }
+            }
+        }
+    }
+
+    private fun initNotificationMonitoring() {
+        viewModelScope.launch {
+            LauncherNotificationListenerService.activeNotifications.collectLatest { map ->
+                val currentPopupApp = _state.value.activePopupApp
+                if (currentPopupApp != null) {
+                    val updatedNotifications = map[currentPopupApp.packageName] ?: emptyList()
+                    _state.update { it.copy(activePopupNotifications = updatedNotifications) }
                 }
-                
-                if (folderApps.isNotEmpty()) {
-                    folders.add(
-                        FolderState(
-                            name = name,
-                            cards = folderApps.map { 
-                                CardState(
-                                    app = it,
-                                    shortcuts = repository.getShortcuts(it)
-                                ) 
-                            }
-                        )
-                    )
+            }
+        }
+    }
+
+    fun loadApps() {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (_state.value.allApps.isEmpty()) {
+                _state.update { it.copy(isLoading = true) }
+            }
+            val apps = repository.loadApps()
+
+            val scrollbarPos = preferencesManager.scrollbarPosition
+            val scrollbarVertAlign = preferencesManager.scrollbarVerticalAlignment
+            val bgType = preferencesManager.backgroundType
+            val colorTone = preferencesManager.colorTone
+            val theme = preferencesManager.themeMode
+            val topSpacing = preferencesManager.topSpacingMode
+            val haptic = preferencesManager.hapticFeedbackEnabled
+            val topWidget = preferencesManager.topWidgetId
+            val history = preferencesManager.getSearchHistory()
+            val launchCounts = preferencesManager.getSearchLaunchCounts()
+            val savedWallpaperPath = preferencesManager.customWallpaperPath
+            val savedAdaptiveAccentInt = preferencesManager.adaptiveAccentColor
+            val solidPreset = preferencesManager.solidColorPreset
+            val solidBgInt = preferencesManager.solidBackgroundColor
+            val solidAccentInt = preferencesManager.solidAccentColor
+            val filterOpacity = preferencesManager.wallpaperFilterOpacity
+            val filterColorInt = preferencesManager.wallpaperFilterColor
+
+            var wallpaperBitmap: ImageBitmap? = null
+            var extractedColorsList: List<Color> = emptyList()
+            var adaptiveAccent: Color? = savedAdaptiveAccentInt?.let { Color(it) }
+
+            if (savedWallpaperPath != null) {
+                val wallpaperFile = File(savedWallpaperPath)
+                if (wallpaperFile.exists() && wallpaperFile.length() > 0) {
+                    val bmp = WallpaperColorExtractor.loadWallpaperBitmap(wallpaperFile)
+                    if (bmp != null) {
+                        wallpaperBitmap = bmp.asImageBitmap()
+                        val extracted = WallpaperColorExtractor.extractPalette(bmp)
+                        extractedColorsList = extracted.swatchColors.map { Color(it) }
+                        if (adaptiveAccent == null) {
+                            adaptiveAccent = Color(extracted.primaryAccent)
+                        }
+                    }
+                } else {
+                    preferencesManager.clearCustomWallpaper()
                 }
             }
 
-            _state.update { 
-                it.copy(
-                    folders = folders,
-                    neutralApps = neutralApps,
+            val hiddenApps = apps.filter { it.isHidden }
+            val visibleApps = apps.filter { !it.isHidden }
+
+            val favoriteApps = visibleApps.filter { it.isFavorite }
+            val nonFavoriteApps = visibleApps.filter { !it.isFavorite }
+
+            // Group non-favorites alphabetically
+            val sectionsMap = mutableMapOf<String, MutableList<AppModel>>()
+            for (app in nonFavoriteApps) {
+                val firstChar = app.label.firstOrNull()?.uppercaseChar() ?: '#'
+                val key = if (firstChar in 'A'..'Z') firstChar.toString() else "#"
+                sectionsMap.getOrPut(key) { mutableListOf() }.add(app)
+            }
+
+            val sortedKeys = sectionsMap.keys.sortedWith { a, b ->
+                when {
+                    a == "#" -> 1
+                    b == "#" -> -1
+                    else -> a.compareTo(b)
+                }
+            }
+
+            val alphabetSections = sortedKeys.map { key ->
+                AppAlphabetSection(
+                    letter = key,
+                    apps = sectionsMap[key]?.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label }) ?: emptyList()
+                )
+            }
+
+            val availableAlphabet = buildList {
+                add("★")
+                for (sec in alphabetSections) {
+                    add(sec.letter)
+                }
+                add("🔍")
+                add("⚙")
+            }
+
+            // Calculate item index in the LazyColumn for fast wave-scrollbar jumping
+            // Index 0: Home Area (key = "home_area")
+            // Then each alphabet section has:
+            //   1 Header item
+            //   N App items
+            val indexMap = mutableMapOf<String, Int>()
+            indexMap["★"] = 0 // Home Area
+
+            var currentIndex = 1 // First alphabet section starts at index 1
+
+            for (sec in alphabetSections) {
+                indexMap[sec.letter] = currentIndex
+                currentIndex += 1 // Section header item
+                currentIndex += sec.apps.size // Apps items
+            }
+
+            val freqApps = repository.filterAndRankApps(apps, "", launchCounts).take(8)
+
+            val customPins = preferencesManager.getCustomRadialPins()
+
+            _state.update { current ->
+                val currentPopupPkg = current.activePopupApp?.packageName
+                val updatedPopupApp = if (currentPopupPkg != null) {
+                    apps.firstOrNull { it.packageName == currentPopupPkg } ?: current.activePopupApp
+                } else null
+
+                val currentSheetPkg = current.activeBottomSheetApp?.packageName
+                val updatedSheetApp = if (currentSheetPkg != null) {
+                    apps.firstOrNull { it.packageName == currentSheetPkg } ?: current.activeBottomSheetApp
+                } else null
+
+                current.copy(
+                    activePopupApp = updatedPopupApp,
+                    activeBottomSheetApp = updatedSheetApp,
+                    allApps = visibleApps,
+                    favoriteApps = favoriteApps,
+                    alphabetSections = alphabetSections,
+                    availableAlphabet = availableAlphabet,
+                    letterToScrollIndex = indexMap,
+                    hiddenApps = hiddenApps,
+                    topWidgetId = topWidget,
+                    scrollbarPosition = scrollbarPos,
+                    scrollbarVerticalAlignment = scrollbarVertAlign,
+                    backgroundType = bgType,
+                    colorTone = colorTone,
+                    themeMode = theme,
+                    topSpacingMode = topSpacing,
+                    hapticFeedbackEnabled = haptic,
+                    recentSearches = history,
+                    frequentlyUsedApps = freqApps,
+                    customWallpaperBitmap = wallpaperBitmap,
+                    customWallpaperPath = if (wallpaperBitmap != null) savedWallpaperPath else null,
+                    extractedPaletteColors = extractedColorsList,
+                    wallpaperColors = extractedColorsList,
+                    adaptiveAccentColor = adaptiveAccent,
+                    solidColorPreset = solidPreset,
+                    solidBackgroundColor = Color(solidBgInt),
+                    solidAccentColor = Color(solidAccentInt),
+                    wallpaperFilterOpacity = filterOpacity,
+                    wallpaperFilterColor = Color(filterColorInt),
+                    customRadialPins = customPins,
                     isLoading = false
                 )
             }
         }
     }
 
-    fun updateCardSize(folderId: String, cardId: String, widthCells: Int, heightCells: Int) {
-        _state.update { currentState ->
-            val updatedFolders = currentState.folders.map { folder ->
-                if (folder.id == folderId) {
-                    folder.copy(
-                        cards = folder.cards.map { card ->
-                            if (card.id == cardId) {
-                                card.copy(widthCells = widthCells, heightCells = heightCells)
-                            } else card
-                        }
-                    )
-                } else folder
-            }
-            currentState.copy(folders = updatedFolders)
-        }
-    }
+    // Custom Wallpaper & Color Management
+    fun onWallpaperPicked(uri: Uri) = setCustomWallpaper(uri)
 
-    fun setWidgetConfigured(
-        folderId: String,
-        cardId: String,
-        appWidgetId: Int,
-        widthCells: Int? = null,
-        heightCells: Int? = null
-    ) {
-        _state.update { currentState ->
-            val updatedFolders = currentState.folders.map { folder ->
-                if (folder.id == folderId) {
-                    folder.copy(
-                        cards = folder.cards.map { card ->
-                            if (card.id == cardId) {
-                                card.copy(
-                                    isWidgetConfigured = true,
-                                    appWidgetId = appWidgetId,
-                                    widthCells = widthCells ?: card.widthCells,
-                                    heightCells = heightCells ?: card.heightCells
-                                )
-                            } else card
-                        }
-                    )
-                } else folder
-            }
-            currentState.copy(folders = updatedFolders)
-        }
-    }
+    fun setCustomWallpaper(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val file = WallpaperColorExtractor.copyUriToInternalStorage(getApplication(), uri)
+            if (file != null && file.exists()) {
+                val bitmap = WallpaperColorExtractor.loadWallpaperBitmap(file)
+                if (bitmap != null) {
+                    val extracted = WallpaperColorExtractor.extractPalette(bitmap)
+                    val primaryAccent = extracted.primaryAccent
+                    preferencesManager.setCustomWallpaper(file.absolutePath, primaryAccent)
+                    preferencesManager.backgroundType = BackgroundType.WALLPAPER
+                    val imageBitmap = bitmap.asImageBitmap()
+                    val paletteColors = extracted.swatchColors.map { Color(it) }
+                    val accentColor = Color(primaryAccent)
 
-    fun moveFromNeutralToFolder(app: AppModel) {
-        _state.update { currentState ->
-            val newNeutralApps = currentState.neutralApps.filter { it.packageName != app.packageName }
-            
-            // Find or create "Uncategorized" folder
-            val uncategorizedName = "Uncategorized"
-            var found = false
-            val updatedFolders = currentState.folders.map { folder ->
-                if (folder.name == uncategorizedName) {
-                    found = true
-                    folder.copy(cards = folder.cards + CardState(app = app, shortcuts = repository.getShortcuts(app)))
-                } else {
-                    folder
+                    _state.update {
+                        it.copy(
+                            backgroundType = BackgroundType.WALLPAPER,
+                            themeMode = preferencesManager.themeMode,
+                            customWallpaperBitmap = imageBitmap,
+                            customWallpaperPath = file.absolutePath,
+                            extractedPaletteColors = paletteColors,
+                            wallpaperColors = paletteColors,
+                            adaptiveAccentColor = accentColor
+                        )
+                    }
                 }
-            }.toMutableList()
-            
-            if (!found) {
-                updatedFolders.add(
-                    FolderState(name = uncategorizedName, cards = listOf(CardState(app = app, shortcuts = repository.getShortcuts(app))))
+            }
+        }
+    }
+
+    fun removeCustomWallpaper() {
+        viewModelScope.launch(Dispatchers.IO) {
+            WallpaperColorExtractor.deleteCustomWallpaper(getApplication())
+            preferencesManager.clearCustomWallpaper()
+            _state.update {
+                it.copy(
+                    customWallpaperBitmap = null,
+                    customWallpaperPath = null,
+                    extractedPaletteColors = emptyList(),
+                    wallpaperColors = emptyList(),
+                    adaptiveAccentColor = null
                 )
             }
-            
-            currentState.copy(
-                neutralApps = newNeutralApps,
-                folders = updatedFolders
+        }
+    }
+
+    fun setAdaptiveAccentColor(color: Color?) {
+        preferencesManager.adaptiveAccentColor = color?.toArgb()
+        _state.update { it.copy(adaptiveAccentColor = color) }
+    }
+
+    fun setSolidPreset(preset: SolidColorPreset) = setSolidColorPreset(preset)
+
+    fun setSolidColorPreset(preset: SolidColorPreset) {
+        preferencesManager.solidColorPreset = preset
+        if (preset != SolidColorPreset.CUSTOM) {
+            val bg = preset.defaultBgColor
+            val accent = preset.defaultAccentColor
+            preferencesManager.solidBackgroundColor = bg
+            preferencesManager.solidAccentColor = accent
+            _state.update {
+                it.copy(
+                    solidColorPreset = preset,
+                    solidBackgroundColor = Color(bg),
+                    solidAccentColor = Color(accent)
+                )
+            }
+        } else {
+            _state.update { it.copy(solidColorPreset = preset) }
+        }
+    }
+
+    fun setSolidBackgroundColor(color: Color) {
+        val colorInt = color.toArgb()
+        preferencesManager.solidBackgroundColor = colorInt
+        preferencesManager.solidColorPreset = SolidColorPreset.CUSTOM
+        _state.update {
+            it.copy(
+                solidBackgroundColor = color,
+                solidColorPreset = SolidColorPreset.CUSTOM
             )
         }
     }
 
-    fun launchApp(app: AppModel) {
+    fun setSolidAccentColor(color: Color) {
+        val colorInt = color.toArgb()
+        preferencesManager.solidAccentColor = colorInt
+        preferencesManager.solidColorPreset = SolidColorPreset.CUSTOM
+        _state.update {
+            it.copy(
+                solidAccentColor = color,
+                solidColorPreset = SolidColorPreset.CUSTOM
+            )
+        }
+    }
+
+    fun setWallpaperFilterOpacity(opacity: Float) {
+        preferencesManager.wallpaperFilterOpacity = opacity
+        _state.update { it.copy(wallpaperFilterOpacity = opacity) }
+    }
+
+    fun setWallpaperFilterColor(color: Color) {
+        val colorInt = color.toArgb()
+        preferencesManager.wallpaperFilterColor = colorInt
+        _state.update { it.copy(wallpaperFilterColor = color) }
+    }
+
+    // App Pinning / Favorite
+    fun toggleFavorite(app: AppModel) {
+        val isNowFav = preferencesManager.toggleFavoriteApp(app.packageName)
+        loadApps()
+        if (_state.value.activeBottomSheetApp?.packageName == app.packageName) {
+            _state.update {
+                it.copy(activeBottomSheetApp = it.activeBottomSheetApp?.copy(isFavorite = isNowFav))
+            }
+        }
+    }
+
+    // App Hiding
+    fun toggleHideApp(app: AppModel) {
+        val nextHidden = !app.isHidden
+        preferencesManager.setAppHidden(app.packageName, nextHidden)
+        loadApps()
+        closeBottomSheet()
+    }
+
+    fun unhideApp(app: AppModel) {
+        preferencesManager.setAppHidden(app.packageName, false)
+        loadApps()
+    }
+
+    // Pop-up Widgets
+    fun addAppPopupWidget(packageName: String, widgetId: Int) {
+        preferencesManager.addPopupWidgetForApp(packageName, widgetId)
+        val updatedIds = preferencesManager.getPopupWidgetsForApp(packageName)
+        _state.update { current ->
+            val updatedPopupApp = if (current.activePopupApp?.packageName == packageName) {
+                current.activePopupApp.copy(popupWidgetIds = updatedIds)
+            } else {
+                current.activePopupApp
+            }
+            val updatedBottomSheetApp = if (current.activeBottomSheetApp?.packageName == packageName) {
+                current.activeBottomSheetApp.copy(popupWidgetIds = updatedIds)
+            } else {
+                current.activeBottomSheetApp
+            }
+            current.copy(
+                activePopupApp = updatedPopupApp,
+                activeBottomSheetApp = updatedBottomSheetApp
+            )
+        }
+        loadApps()
+    }
+
+    fun removeAppPopupWidget(packageName: String, widgetId: Int, appWidgetHost: AppWidgetHost? = null) {
+        appWidgetHost?.deleteAppWidgetId(widgetId)
+        preferencesManager.removePopupWidgetForApp(packageName, widgetId)
+        preferencesManager.setWidgetCustomHeight(widgetId, null)
+        val updatedIds = preferencesManager.getPopupWidgetsForApp(packageName)
+        _state.update { current ->
+            val updatedPopupApp = if (current.activePopupApp?.packageName == packageName) {
+                current.activePopupApp.copy(popupWidgetIds = updatedIds)
+            } else {
+                current.activePopupApp
+            }
+            val updatedBottomSheetApp = if (current.activeBottomSheetApp?.packageName == packageName) {
+                current.activeBottomSheetApp.copy(popupWidgetIds = updatedIds)
+            } else {
+                current.activeBottomSheetApp
+            }
+            current.copy(
+                activePopupApp = updatedPopupApp,
+                activeBottomSheetApp = updatedBottomSheetApp
+            )
+        }
+        loadApps()
+    }
+
+    fun setAppPopupWidget(packageName: String, widgetId: Int?) {
+        preferencesManager.setPopupWidgetForApp(packageName, widgetId)
+        val updatedIds = preferencesManager.getPopupWidgetsForApp(packageName)
+        _state.update { current ->
+            val updatedPopupApp = if (current.activePopupApp?.packageName == packageName) {
+                current.activePopupApp.copy(popupWidgetIds = updatedIds)
+            } else {
+                current.activePopupApp
+            }
+            val updatedBottomSheetApp = if (current.activeBottomSheetApp?.packageName == packageName) {
+                current.activeBottomSheetApp.copy(popupWidgetIds = updatedIds)
+            } else {
+                current.activeBottomSheetApp
+            }
+            current.copy(
+                activePopupApp = updatedPopupApp,
+                activeBottomSheetApp = updatedBottomSheetApp
+            )
+        }
+        loadApps()
+    }
+
+    fun getWidgetCustomHeight(widgetId: Int): Int? = preferencesManager.getWidgetCustomHeight(widgetId)
+
+    fun saveWidgetCustomHeight(widgetId: Int, heightDp: Int?) {
+        preferencesManager.setWidgetCustomHeight(widgetId, heightDp)
+    }
+
+    // Top Header Widget
+    fun setTopWidgetId(widgetId: Int) {
+        preferencesManager.topWidgetId = widgetId
+        _state.update { it.copy(topWidgetId = widgetId) }
+    }
+
+    fun removeTopWidget() {
+        preferencesManager.topWidgetId = -1
+        _state.update { it.copy(topWidgetId = -1) }
+    }
+
+    // App Actions
+    fun launchApp(app: AppModel, fromSearch: Boolean = false) {
+        if (app.packageName == getApplication<Application>().packageName) {
+            if (fromSearch) {
+                preferencesManager.recordAppLaunchFromSearch(app.packageName)
+                if (_state.value.searchQuery.isNotBlank()) {
+                    preferencesManager.addSearchQuery(_state.value.searchQuery)
+                }
+                closeSearch()
+            }
+            openSettingsScreen()
+            return
+        }
+
+        if (fromSearch) {
+            preferencesManager.recordAppLaunchFromSearch(app.packageName)
+            if (_state.value.searchQuery.isNotBlank()) {
+                preferencesManager.addSearchQuery(_state.value.searchQuery)
+            }
+            closeSearch()
+        }
         repository.launchApp(app)
     }
-    
+
+    fun getRadialAppsForLetter(letter: String): List<AppModel> {
+        if (letter == "★") {
+            val favs = _state.value.favoriteApps
+            if (favs.isNotEmpty()) {
+                return favs.take(4)
+            }
+            val freq = _state.value.frequentlyUsedApps
+            if (freq.isNotEmpty()) {
+                return freq.take(4)
+            }
+            return _state.value.allApps.take(4)
+        }
+        if (letter == "⚙" || letter == "🔍") {
+            return emptyList()
+        }
+
+        // Search across all installed apps whose first character matches this letter
+        val allAppsForLetter = _state.value.allApps.filter { app ->
+            val firstChar = app.label.firstOrNull()?.uppercaseChar() ?: '#'
+            val key = if (firstChar in 'A'..'Z') firstChar.toString() else "#"
+            key.equals(letter, ignoreCase = true)
+        }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+
+        val pinnedPackageNames = preferencesManager.getCustomRadialPinsForLetter(letter)
+        val pinnedApps = pinnedPackageNames.mapNotNull { pkg ->
+            _state.value.allApps.firstOrNull { it.packageName == pkg }
+        }
+
+        if (pinnedApps.size >= 4) {
+            return pinnedApps.take(4)
+        }
+
+        // Auto-fill remaining slots with highest-ranked usage apps from this specific letter
+        val remainingCount = 4 - pinnedApps.size
+        val pinnedSet = pinnedApps.map { it.packageName }.toSet()
+        val autoFillApps = allAppsForLetter
+            .filter { it.packageName !in pinnedSet }
+            .sortedByDescending { repository.getLaunchCount(it.packageName) }
+            .take(remainingCount)
+
+        return pinnedApps + autoFillApps
+    }
+
+    fun getAllAppsForLetter(letter: String): List<AppModel> {
+        if (letter == "★") {
+            val favs = _state.value.favoriteApps
+            return if (favs.isNotEmpty()) favs else _state.value.allApps
+        }
+        return _state.value.allApps.filter { app ->
+            val firstChar = app.label.firstOrNull()?.uppercaseChar() ?: '#'
+            val key = if (firstChar in 'A'..'Z') firstChar.toString() else "#"
+            key.equals(letter, ignoreCase = true)
+        }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
+    }
+
+    fun openRadialEditor(letter: String) {
+        _state.update { it.copy(activeEditingLetter = letter) }
+    }
+
+    fun closeRadialEditor() {
+        _state.update { it.copy(activeEditingLetter = null) }
+    }
+
+    fun saveRadialConfiguration(letter: String, selectedApps: List<AppModel>) {
+        preferencesManager.setCustomRadialPinsForLetter(letter, selectedApps.map { it.packageName })
+        _state.update {
+            it.copy(
+                activeEditingLetter = null,
+                customRadialPins = preferencesManager.getCustomRadialPins()
+            )
+        }
+    }
+
+    fun resetRadialConfiguration(letter: String) {
+        preferencesManager.clearCustomRadialPinsForLetter(letter)
+        _state.update {
+            it.copy(
+                activeEditingLetter = null,
+                customRadialPins = preferencesManager.getCustomRadialPins()
+            )
+        }
+    }
+
+    fun launchShortcut(shortcut: ShortcutInfo) {
+        closePopup()
+        closeBottomSheet()
+        repository.launchShortcut(shortcut)
+    }
+
+    fun openDefaultLauncherSettings() {
+        com.velocity.launcher.util.DefaultLauncherHelper.openDefaultLauncherSettings(getApplication())
+    }
+
+    fun openAppInfo(app: AppModel) {
+        closeBottomSheet()
+        repository.openAppInfo(app)
+    }
+
+    fun uninstallApp(app: AppModel) {
+        closeBottomSheet()
+        repository.uninstallApp(app)
+    }
+
+    fun searchWeb(query: String) {
+        preferencesManager.addSearchQuery(query)
+        closeSearch()
+        repository.searchWeb(query)
+    }
+
+    fun openClock() {
+        repository.openClock()
+    }
+
+    fun openCalendar() {
+        repository.openCalendar()
+    }
+
     fun getIcon(app: AppModel) = repository.getIcon(app)
+
+    fun getIconBitmap(app: AppModel, sizePx: Int = 128): ImageBitmap? = repository.getIconBitmap(app, sizePx)
 
     fun getShortcutIcon(shortcut: ShortcutInfo) = repository.getShortcutIcon(shortcut)
 
-    fun launchShortcut(shortcut: ShortcutInfo) {
-        repository.launchShortcut(shortcut)
+    fun getShortcutIconBitmap(shortcut: ShortcutInfo, sizePx: Int = 96): ImageBitmap? = repository.getShortcutIconBitmap(shortcut, sizePx)
+
+    // Search
+    fun openSearch() {
+        val launchCounts = preferencesManager.getSearchLaunchCounts()
+        val history = preferencesManager.getSearchHistory()
+        val freq = repository.filterAndRankApps(_state.value.allApps, "", launchCounts).take(8)
+
+        _state.update {
+            it.copy(
+                isSearchOpen = true,
+                searchQuery = "",
+                searchResults = emptyList(),
+                recentSearches = history,
+                frequentlyUsedApps = freq
+            )
+        }
+    }
+
+    fun closeSearch() {
+        _state.update { it.copy(isSearchOpen = false, searchQuery = "", searchResults = emptyList()) }
+    }
+
+    fun onSearchQueryChanged(query: String) {
+        val launchCounts = preferencesManager.getSearchLaunchCounts()
+        val results = if (query.isBlank()) {
+            emptyList()
+        } else {
+            repository.filterAndRankApps(_state.value.allApps, query, launchCounts)
+        }
+
+        _state.update {
+            it.copy(
+                searchQuery = query,
+                searchResults = results
+            )
+        }
+    }
+
+    fun removeSearchHistoryItem(query: String) {
+        preferencesManager.removeSearchQuery(query)
+        _state.update { it.copy(recentSearches = preferencesManager.getSearchHistory()) }
+    }
+
+    fun clearSearchHistory() {
+        preferencesManager.clearSearchHistory()
+        _state.update { it.copy(recentSearches = emptyList()) }
+    }
+
+    // Bottom Sheet
+    fun openBottomSheet(app: AppModel) {
+        val hasPermission = repository.hasShortcutHostPermission()
+        val shortcuts = if (hasPermission) repository.getShortcuts(app) else emptyList()
+        _state.update {
+            it.copy(
+                activeBottomSheetApp = app,
+                activeBottomSheetShortcuts = shortcuts,
+                hasShortcutHostPermission = hasPermission
+            )
+        }
+    }
+
+    fun closeBottomSheet() {
+        _state.update {
+            it.copy(
+                activeBottomSheetApp = null,
+                activeBottomSheetShortcuts = emptyList()
+            )
+        }
+    }
+
+    // Pop-up Drawer (Swipe Right)
+    fun openPopup(app: AppModel) {
+        val hasPermission = repository.hasShortcutHostPermission()
+        val shortcuts = if (hasPermission) repository.getShortcuts(app) else emptyList()
+        val isGranted = LauncherNotificationListenerService.isNotificationAccessGranted(getApplication())
+        val notifications = LauncherNotificationListenerService.activeNotifications.value[app.packageName] ?: emptyList()
+        _state.update {
+            it.copy(
+                activePopupApp = app,
+                activePopupShortcuts = shortcuts,
+                activePopupNotifications = notifications,
+                hasShortcutHostPermission = hasPermission,
+                isNotificationAccessGranted = isGranted
+            )
+        }
+    }
+
+    fun closePopup() {
+        _state.update {
+            it.copy(
+                activePopupApp = null,
+                activePopupShortcuts = emptyList(),
+                activePopupNotifications = emptyList()
+            )
+        }
+    }
+
+    fun openNotification(notification: AppNotificationModel) {
+        try {
+            notification.contentIntent?.send()
+        } catch (e: Exception) {
+            // Ignore intent send failure
+        }
+        closePopup()
+    }
+
+    fun dismissNotification(notification: AppNotificationModel) {
+        LauncherNotificationListenerService.dismissNotification(notification.key)
+        _state.update { current ->
+            current.copy(
+                activePopupNotifications = current.activePopupNotifications.filterNot { it.key == notification.key }
+            )
+        }
+    }
+
+    fun requestNotificationAccess() {
+        LauncherNotificationListenerService.openNotificationAccessSettings(getApplication())
+    }
+
+    // Widget Picker
+    fun openWidgetPicker(targetApp: AppModel?) {
+        _state.update { it.copy(isWidgetPickerOpen = true, widgetPickerTargetApp = targetApp) }
+    }
+
+    fun closeWidgetPicker() {
+        _state.update { it.copy(isWidgetPickerOpen = false, widgetPickerTargetApp = null) }
+    }
+
+    // Hidden Apps Screen
+    fun openHiddenAppsScreen() {
+        _state.update { it.copy(isHiddenAppsOpen = true) }
+    }
+
+    fun closeHiddenAppsScreen() {
+        _state.update { it.copy(isHiddenAppsOpen = false) }
+    }
+
+    // Settings Screen
+    fun openSettingsScreen() {
+        _state.update { it.copy(isSettingsOpen = true) }
+    }
+
+    fun closeSettingsScreen() {
+        _state.update { it.copy(isSettingsOpen = false) }
+    }
+
+    fun setScrollbarPosition(pos: ScrollbarPosition) {
+        preferencesManager.scrollbarPosition = pos
+        _state.update { it.copy(scrollbarPosition = pos) }
+    }
+
+    fun setScrollbarVerticalAlignment(alignment: ScrollbarVerticalAlignment) {
+        preferencesManager.scrollbarVerticalAlignment = alignment
+        _state.update { it.copy(scrollbarVerticalAlignment = alignment) }
+    }
+
+    fun setBackgroundType(type: BackgroundType) {
+        preferencesManager.backgroundType = type
+        _state.update {
+            it.copy(
+                backgroundType = type,
+                themeMode = preferencesManager.themeMode
+            )
+        }
+    }
+
+    fun setColorTone(tone: ColorTone) {
+        preferencesManager.colorTone = tone
+        _state.update {
+            it.copy(
+                colorTone = tone,
+                themeMode = preferencesManager.themeMode
+            )
+        }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        preferencesManager.themeMode = mode
+        _state.update {
+            it.copy(
+                themeMode = mode,
+                backgroundType = preferencesManager.backgroundType,
+                colorTone = preferencesManager.colorTone
+            )
+        }
+    }
+
+    fun setTopSpacingMode(mode: TopSpacingMode) {
+        preferencesManager.topSpacingMode = mode
+        _state.update { it.copy(topSpacingMode = mode) }
+    }
+
+    fun setHapticFeedbackEnabled(enabled: Boolean) {
+        preferencesManager.hapticFeedbackEnabled = enabled
+        _state.update { it.copy(hapticFeedbackEnabled = enabled) }
+    }
+
+    fun getScrollIndexForLetter(letter: String): Int? {
+        if (letter == "⚙" || letter == "🔍") return null
+        val map = _state.value.letterToScrollIndex
+        map[letter]?.let { return it }
+
+        val alphabet = listOf("★") + ('A'..'Z').map { it.toString() } + listOf("#")
+        val letterIdx = alphabet.indexOf(letter)
+        if (letterIdx == -1) return null
+
+        // Search forward for closest next available section
+        for (i in (letterIdx + 1)..alphabet.lastIndex) {
+            val next = map[alphabet[i]]
+            if (next != null) return next
+        }
+
+        // Search backward for closest previous available section
+        for (i in (letterIdx - 1) downTo 0) {
+            val prev = map[alphabet[i]]
+            if (prev != null) return prev
+        }
+
+        return null
     }
 }

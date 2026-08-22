@@ -40,6 +40,11 @@
 
     <!-- Neutral Utility Colors -->
     <color name="transparent">#00000000</color>
+    <color name="wallpaper_scrim">#33000000</color>
+    <color name="wallpaper_scrim_heavy">#66000000</color>
+    <color name="glass_surface">#33FFFFFF</color>
+    <color name="glass_surface_dark">#22000000</color>
     <color name="divider">#1E000000</color>
     <color name="dark_divider">#1EFFFFFF</color>
 </resources>
+

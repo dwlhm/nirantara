@@ -1,57 +1,65 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- App & General -->
-    <string name="app_name">Velocity</string>
+    <string name="app_name">Nirantara</string>
     <string name="search_hint">Search apps…</string>
+    <string name="search_web">Search web for \"%1$s\"</string>
     <string name="cancel">Cancel</string>
     <string name="close">Close</string>
+    <string name="done">Done</string>
+    <string name="save">Save</string>
+    <string name="remove">Remove</string>
     <string name="launch_app">Launch App</string>
     <string name="unhide">Unhide</string>
     <string name="work_profile_tag">Work</string>
 
-    <!-- Focus Modes -->
-    <string name="mode_all">All</string>
-    <string name="mode_work">Work</string>
-    <string name="mode_personal">Personal</string>
+    <!-- Sections -->
     <string name="favorites_title">Favorites</string>
-
-    <!-- Friction Gate -->
-    <string name="access_non_focus_apps">Access Non-Focus Apps (%1$d)</string>
-    <string name="access_non_focus_apps_default">Access Non-Focus Apps</string>
-    <string name="friction_check_title">Mindful Pause</string>
-    <string name="friction_check_text">Friction Check: Take a breath before switching context</string>
+    <string name="all_apps_title">All Apps</string>
+    <string name="recent_searches">Recent Searches</string>
+    <string name="frequently_used">Frequently Used</string>
+    <string name="clear_history">Clear</string>
 
     <!-- App Options Bottom Sheet -->
     <string name="options_title">App Options</string>
-    <string name="pin_to_favorites">Pin to Favorites</string>
-    <string name="unpin_from_favorites">Unpin from Favorites</string>
-    <string name="assign_focus_mode">Assign Focus Mode</string>
-    <string name="focus_all">All Modes</string>
-    <string name="focus_work">Work Only</string>
-    <string name="focus_personal">Personal Only</string>
+    <string name="pin_to_favorites">Add to Favorites</string>
+    <string name="unpin_from_favorites">Remove from Favorites</string>
+    <string name="attach_widget">Attach Pop-up Widget</string>
+    <string name="change_widget">Change Pop-up Widget</string>
+    <string name="remove_widget">Remove Pop-up Widget</string>
     <string name="app_info">App Info</string>
     <string name="uninstall">Uninstall</string>
     <string name="hide_app">Hide App</string>
 
-    <!-- Hidden Apps Dialog -->
+    <!-- Widgets -->
+    <string name="add_widget">Add Widget</string>
+    <string name="top_widget">Header Widget</string>
+    <string name="choose_widget">Choose Widget</string>
+    <string name="no_widgets_available">No widgets available for this app</string>
+
+    <!-- Hidden Apps -->
     <string name="hidden_apps">Hidden Apps</string>
     <string name="hidden_apps_title">Manage Hidden Apps</string>
     <string name="no_hidden_apps">No hidden apps</string>
+    <string name="hidden_apps_summary">%1$d app(s) hidden from drawer</string>
 
     <!-- Settings -->
-    <string name="title_settings">Velocity Settings</string>
-    <string name="settings_title">Velocity Settings</string>
-    <string name="theme_title">Theme</string>
-    <string name="theme_light">Light</string>
-    <string name="theme_dark">Dark</string>
+    <string name="title_settings">Pengaturan Nirantara</string>
+    <string name="settings_title">Pengaturan Nirantara</string>
+    <string name="theme_title">Theme Mode</string>
+    <string name="theme_adaptive">Adaptive (Wallpaper)</string>
+    <string name="theme_wallpaper">Wallpaper (Transparent Scrim)</string>
+    <string name="theme_dark">Dark Mode</string>
+    <string name="theme_light">Light Mode</string>
+    <string name="theme_system">System Default</string>
+    <string name="theme_solid_color">Solid Color</string>
     <string name="theme_amoled">AMOLED Pure Black</string>
-    <string name="display_mode_title">Display Mode</string>
-    <string name="display_mode_grid">Compact Grid</string>
-    <string name="display_mode_text">Minimalist Text List</string>
-    <string name="grid_columns_title">Grid Columns</string>
-    <string name="columns_3">3 Columns</string>
-    <string name="columns_4">4 Columns</string>
-    <string name="columns_5">5 Columns</string>
-    <string name="set_as_default_launcher">Set Velocity as Default Launcher</string>
+    <string name="scrollbar_position_title">Scrollbar Position</string>
+    <string name="scrollbar_right">Right (Default)</string>
+    <string name="scrollbar_left">Left</string>
+    <string name="scrollbar_both">Both</string>
+    <string name="haptics_title">Haptic Feedback</string>
+    <string name="haptics_summary">Vibrate when scrolling the alphabet</string>
+    <string name="set_as_default_launcher">Set as Default Launcher</string>
     <string name="manage_hidden_apps">Manage Hidden Apps</string>
 </resources>
