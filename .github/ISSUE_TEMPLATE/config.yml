@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Community Discussions & Questions
+    url: https://github.com/dwlhm/nirantara/discussions
+    about: Ask questions, share customization setups, or discuss launcher ergonomics.
+  - name: Security Vulnerability Reporting
+    url: https://github.com/dwlhm/nirantara/security/advisories/new
+    about: Report potential security vulnerabilities privately and securely.

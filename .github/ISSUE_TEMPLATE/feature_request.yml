@@ -1,0 +1,45 @@
+name: Feature Request
+description: Propose a new feature, ergonomic improvement, or customization idea.
+title: "[Feature]: "
+labels: ["enhancement", "proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        We appreciate ideas that improve Nirantara's speed, ergonomics, and minimalist design!
+  - type: textarea
+    id: problem_statement
+    attributes:
+      label: Problem / Motivation
+      description: Is your feature request related to a specific limitation or pain point? Please describe.
+      placeholder: "e.g. I am frustrated when..."
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution or new behavior you'd like to see implemented.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives_considered
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions, UX patterns, or workarounds you've evaluated?
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context & Mockups
+      description: Add any mockups, diagrams, or references that illustrate the proposal.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmation
+      options:
+        - label: I have verified that this proposal does not conflict with existing open discussions or issues.
+          required: true

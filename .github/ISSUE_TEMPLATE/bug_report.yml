@@ -1,0 +1,67 @@
+name: Bug Report
+description: Report a bug, crash, or unexpected behavior in Nirantara.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please provide as much relevant detail as possible.
+  - type: input
+    id: version
+    attributes:
+      label: Nirantara Version
+      description: What version or git commit hash of Nirantara are you running?
+      placeholder: "e.g. 1.0.0 (or commit 3f8a1bc)"
+    validations:
+      required: true
+  - type: input
+    id: device_info
+    attributes:
+      label: Device & Android Version
+      description: Device manufacturer, model, and Android OS version.
+      placeholder: "e.g. Google Pixel 8 Pro - Android 15"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Step-by-step instructions to reproduce the behavior.
+      value: |
+        1. Open Nirantara Launcher
+        2. Tap / swipe on '...'
+        3. Observe unexpected behavior: '...'
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: logs_or_screenshots
+    attributes:
+      label: Logs or Screenshots
+      description: Paste relevant logcat crash traces or attach screenshots / screen recordings.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: validation_checks
+    attributes:
+      label: Confirmation
+      options:
+        - label: I have searched existing issues and confirmed this bug has not already been reported.
+          required: true
+        - label: I am using an official release or building from the latest commit on `main`.
+          required: true
