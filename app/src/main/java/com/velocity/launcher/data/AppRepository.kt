@@ -1,23 +1,38 @@
 package com.velocity.launcher.data
 
+import android.app.ActivityOptions
+import android.app.SearchManager
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
 import android.content.pm.ShortcutInfo
+import android.graphics.Rect
 import android.graphics.drawable.Drawable
+import android.net.Uri
+import android.os.Build
 import android.os.Process
 import android.os.UserHandle
 import android.os.UserManager
+import android.util.DisplayMetrics
+import android.provider.AlarmClock
+import android.provider.CalendarContract
+import android.provider.Settings
 import android.util.LruCache
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.net.URLEncoder
 
 class AppRepository(
     private val context: Context,
     private val preferencesManager: PreferencesManager = PreferencesManager(context)
 ) {
-    private val iconCache = LruCache<String, Drawable>(50)
+    private val iconCache = LruCache<String, Drawable>(150)
+    private val bitmapCache = LruCache<String, ImageBitmap>(200)
     private var cachedApps: List<AppModel> = emptyList()
 
     val currentApps: List<AppModel>
@@ -35,10 +50,9 @@ class AppRepository(
             listOf(myUserHandle)
         }
 
-        val workAppsSet = preferencesManager.getWorkApps()
-        val personalAppsSet = preferencesManager.getPersonalApps()
         val favoriteAppsSet = preferencesManager.getFavoriteApps()
         val hiddenAppsSet = preferencesManager.getHiddenApps()
+        val popupWidgetsMap = preferencesManager.getPopupWidgets()
 
         val appList = mutableListOf<AppModel>()
 
@@ -55,14 +69,9 @@ class AppRepository(
                 val packageName = info.applicationInfo.packageName
                 val className = info.name
 
-                val isWorkProfile = isWork
-                val assignedFocus = when {
-                    isWorkProfile || workAppsSet.contains(packageName) -> FocusMode.WORK
-                    personalAppsSet.contains(packageName) -> FocusMode.PERSONAL
-                    else -> FocusMode.ALL
-                }
                 val isFavorite = favoriteAppsSet.contains(packageName)
                 val isHidden = hiddenAppsSet.contains(packageName)
+                val popupWidgetIds = popupWidgetsMap[packageName] ?: emptyList()
 
                 val cacheKey = "$packageName#${handle.hashCode()}"
                 var cachedIcon = iconCache.get(cacheKey)
@@ -73,28 +82,80 @@ class AppRepository(
                             iconCache.put(cacheKey, cachedIcon)
                         }
                     } catch (e: Exception) {
-                        // Icon load failed; can be retried on getIcon()
+                        // Icon load failed; retry on getIcon()
                     }
                 }
+
+                // Pre-warm ImageBitmap cache
+                if (cachedIcon != null) {
+                    val bitmapKey = "$packageName#${handle.hashCode()}#128"
+                    if (bitmapCache.get(bitmapKey) == null) {
+                        try {
+                            bitmapCache.put(bitmapKey, cachedIcon.toBitmap(128, 128).asImageBitmap())
+                        } catch (e: Exception) {
+                            // Ignore
+                        }
+                    }
+                }
+
+                val normalizedLabel = label.lowercase()
+                val wordPrefixes = computeWordPrefixes(label)
+                val initialisms = computeInitialisms(label, wordPrefixes)
 
                 val app = AppModel(
                     label = label,
                     packageName = packageName,
                     className = className,
                     userHandle = handle,
-                    iconDrawable = cachedIcon,
-                    isWorkProfile = isWorkProfile,
-                    assignedFocus = assignedFocus,
+                    isWorkProfile = isWork,
                     isFavorite = isFavorite,
-                    isHidden = isHidden
+                    isHidden = isHidden,
+                    popupWidgetIds = popupWidgetIds,
+                    normalizedLabel = normalizedLabel,
+                    wordPrefixes = wordPrefixes,
+                    initialisms = initialisms
                 )
                 appList.add(app)
             }
         }
 
-        val sorted = appList.sortedBy { it.label.lowercase() }
+        val sorted = appList.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
         cachedApps = sorted
         sorted
+    }
+
+    private fun computeWordPrefixes(label: String): List<String> {
+        return label.lowercase()
+            .split(Regex("[^a-zA-Z0-9]+"))
+            .filter { it.isNotEmpty() }
+    }
+
+    private fun computeInitialisms(label: String, words: List<String>): List<String> {
+        val result = mutableListOf<String>()
+
+        if (words.size > 1) {
+            val wordInitials = words.map { it.first() }.joinToString("")
+            result.add(wordInitials)
+        }
+
+        val camelInitials = StringBuilder()
+        var prevIsLower = false
+        for (char in label) {
+            if (char.isLetterOrDigit()) {
+                if (camelInitials.isEmpty() || (char.isUpperCase() && prevIsLower)) {
+                    camelInitials.append(char.lowercaseChar())
+                }
+                prevIsLower = char.isLowerCase()
+            } else {
+                prevIsLower = false
+            }
+        }
+        val camelStr = camelInitials.toString()
+        if (camelStr.isNotEmpty() && !result.contains(camelStr)) {
+            result.add(camelStr)
+        }
+
+        return result
     }
 
     private fun isWorkProfile(
@@ -107,7 +168,7 @@ class AppRepository(
             try {
                 if (userManager.isManagedProfile) return true
             } catch (e: Exception) {
-                // Fallback check
+                // Fallback
             }
         }
         return handle != myUserHandle
@@ -137,59 +198,115 @@ class AppRepository(
         return icon
     }
 
+    fun getIconBitmap(app: AppModel, sizePx: Int = 128): ImageBitmap? {
+        val cacheKey = "${app.packageName}#${app.userHandle.hashCode()}#$sizePx"
+        val cached = bitmapCache.get(cacheKey)
+        if (cached != null) return cached
 
-    private fun matchesFocusMode(app: AppModel, mode: FocusMode): Boolean {
-        return when (mode) {
-            FocusMode.ALL -> true
-            FocusMode.WORK -> app.isWorkProfile || app.assignedFocus == FocusMode.WORK
-            FocusMode.PERSONAL -> !app.isWorkProfile && app.assignedFocus != FocusMode.WORK
+        val drawable = getIcon(app) ?: return null
+        val bitmap = try {
+            drawable.toBitmap(sizePx, sizePx).asImageBitmap()
+        } catch (e: Exception) {
+            null
         }
+        if (bitmap != null) {
+            bitmapCache.put(cacheKey, bitmap)
+        }
+        return bitmap
     }
 
-    fun matchesQuery(app: AppModel, query: String): Boolean {
-        if (query.isBlank()) return true
+    fun filterAndRankApps(
+        apps: List<AppModel>,
+        query: String,
+        launchCounts: Map<String, Int>
+    ): List<AppModel> {
+        val nonHidden = apps.filter { !it.isHidden }
+        if (query.isBlank()) {
+            // When query is empty, sort by search launch frequency
+            return nonHidden
+                .sortedByDescending { launchCounts[it.packageName] ?: 0 }
+        }
+
         val q = query.trim().lowercase()
 
-        val labelLower = app.label.lowercase()
-        if (labelLower.contains(q)) return true
-
-        val pkgLower = app.packageName.lowercase()
-        if (pkgLower.contains(q)) return true
-
-        val initialisms = getInitialisms(app.label)
-        if (initialisms.any { it.startsWith(q) || it == q }) return true
-
-        return isFuzzySubsequence(labelLower, q)
+        return nonHidden
+            .mapNotNull { app ->
+                val score = calculateMatchScore(app, q)
+                if (score > 0) {
+                    val boost = (launchCounts[app.packageName] ?: 0) * 40
+                    app to (score + boost)
+                } else {
+                    null
+                }
+            }
+            .sortedByDescending { it.second }
+            .map { it.first }
     }
 
-    private fun getInitialisms(label: String): List<String> {
-        val result = mutableListOf<String>()
+    private fun calculateMatchScore(app: AppModel, query: String): Int {
+        val labelLower = app.normalizedLabel
+        val pkgLower = app.packageName.lowercase()
 
-        // Word initials (e.g. "Play Store" -> "ps", "Google Maps" -> "gm")
-        val words = label.split(Regex("[^a-zA-Z0-9]+")).filter { it.isNotEmpty() }
-        if (words.size > 1) {
-            val wordInitials = words.map { it.first().lowercaseChar() }.joinToString("")
-            result.add(wordInitials)
-        }
-
-        // CamelCase / word boundary initials (e.g. "YouTube" -> "yt")
-        val camelInitials = StringBuilder()
-        var prevIsLower = false
-        for (char in label) {
-            if (char.isLetterOrDigit()) {
-                if (camelInitials.isEmpty() || (char.isUpperCase() && prevIsLower)) {
-                    camelInitials.append(char.lowercaseChar())
+        // Launcher settings search keywords support
+        val myPkg = try { context?.packageName } catch (e: Exception) { null }
+        if (myPkg != null && app.packageName == myPkg) {
+            val launcherKeywords = listOf(
+                "settings", "setting", "pengaturan",
+                "preferences", "preference", "launcher",
+                "nirantara"
+            )
+            for (keyword in launcherKeywords) {
+                if (keyword == query) {
+                    return 2000
                 }
-                prevIsLower = char.isLowerCase()
-            } else {
-                prevIsLower = false
+                if (keyword.startsWith(query)) {
+                    return 1500 - (keyword.length - query.length)
+                }
+                if (keyword.contains(query)) {
+                    return 600
+                }
             }
         }
-        if (camelInitials.isNotEmpty()) {
-            result.add(camelInitials.toString())
+
+        // 1. Exact match on label
+        if (labelLower == query) return 2000
+
+        // 2. Exact prefix match on label
+        if (labelLower.startsWith(query)) return 1500 - labelLower.length
+
+        // 3. Word start matches (e.g. "Google Maps" matching "maps" or "google")
+        val words = app.wordPrefixes
+        for (index in words.indices) {
+            if (words[index].startsWith(query)) {
+                return 1000 - (index * 50)
+            }
         }
 
-        return result
+        // 4. Initialisms matches (e.g. "ps" for "Play Store", "yt" for "YouTube")
+        val initialisms = app.initialisms
+        for (i in initialisms.indices) {
+            val init = initialisms[i]
+            if (init == query) return 800
+            if (init.startsWith(query)) return 700
+        }
+
+        // 5. Substring match in label
+        val subIndex = labelLower.indexOf(query)
+        if (subIndex >= 0) {
+            return 500 - subIndex
+        }
+
+        // 6. Subsequence match in label
+        if (isFuzzySubsequence(labelLower, query)) {
+            return 300
+        }
+
+        // 7. Match in package name
+        if (pkgLower.contains(query)) {
+            return 100
+        }
+
+        return 0
     }
 
     private fun isFuzzySubsequence(text: String, query: String): Boolean {
@@ -204,28 +321,55 @@ class AppRepository(
         return queryIndex == query.length
     }
 
+    fun getLaunchCount(packageName: String): Int {
+        return preferencesManager.getLaunchCount(packageName)
+    }
+
     fun launchApp(app: AppModel) {
         val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
         val componentName = ComponentName(app.packageName, app.className)
         try {
             launcherApps?.startMainActivity(componentName, app.userHandle, null, null)
         } catch (e: Exception) {
-            // Fallback launch
+            try {
+                val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
+                launchIntent?.let {
+                    it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(it)
+                }
+            } catch (ex: Exception) {
+                // Ignore launch failures
+            }
+        }
+    }
+
+    fun hasShortcutHostPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return false
+        val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps ?: return false
+        return try {
+            launcherApps.hasShortcutHostPermission()
+        } catch (e: Exception) {
+            false
         }
     }
 
     fun getShortcuts(app: AppModel): List<ShortcutInfo> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return emptyList()
+        if (!hasShortcutHostPermission()) return emptyList()
         val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps ?: return emptyList()
         return try {
-            val query = LauncherApps.ShortcutQuery().apply {
-                setPackage(app.packageName)
-                setQueryFlags(
-                    LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
+            var flags = LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
                     LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
                     LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED
-                )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                flags = flags or LauncherApps.ShortcutQuery.FLAG_MATCH_CACHED
             }
-            launcherApps.getShortcuts(query, app.userHandle) ?: emptyList()
+            val query = LauncherApps.ShortcutQuery().apply {
+                setPackage(app.packageName)
+                setQueryFlags(flags)
+            }
+            val rawList = launcherApps.getShortcuts(query, app.userHandle) ?: emptyList()
+            rawList.filter { it.isEnabled }.sortedBy { it.rank }
         } catch (e: SecurityException) {
             emptyList()
         } catch (e: Exception) {
@@ -234,10 +378,19 @@ class AppRepository(
     }
 
     fun getShortcutIcon(shortcut: ShortcutInfo): Drawable? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return null
         val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps ?: return null
         val density = context.resources.displayMetrics.densityDpi
         return try {
-            launcherApps.getShortcutIconDrawable(shortcut, density)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    launcherApps.getShortcutBadgedIconDrawable(shortcut, density)
+                } catch (e: Exception) {
+                    launcherApps.getShortcutIconDrawable(shortcut, density)
+                }
+            } else {
+                launcherApps.getShortcutIconDrawable(shortcut, density)
+            }
         } catch (e: SecurityException) {
             null
         } catch (e: Exception) {
@@ -245,14 +398,124 @@ class AppRepository(
         }
     }
 
+    fun getShortcutIconBitmap(shortcut: ShortcutInfo, sizePx: Int = 96): ImageBitmap? {
+        val userHash = shortcut.userHandle?.hashCode() ?: 0
+        val cacheKey = "shortcut#${shortcut.`package`}#${shortcut.id}#${userHash}#$sizePx"
+        val cached = bitmapCache.get(cacheKey)
+        if (cached != null) return cached
+
+        val drawable = getShortcutIcon(shortcut) ?: return null
+        val bitmap = try {
+            drawable.toBitmap(sizePx, sizePx).asImageBitmap()
+        } catch (e: Exception) {
+            null
+        }
+        if (bitmap != null) {
+            bitmapCache.put(cacheKey, bitmap)
+        }
+        return bitmap
+    }
+
     fun launchShortcut(shortcut: ShortcutInfo) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return
         val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps ?: return
         try {
             launcherApps.startShortcut(shortcut, null, null)
         } catch (e: SecurityException) {
             // Graceful handling
         } catch (e: Exception) {
-            // Graceful handling
+            try {
+                launcherApps.startShortcut(shortcut.`package`, shortcut.id, null, null, shortcut.userHandle)
+            } catch (ex: Exception) {
+                // Graceful handling
+            }
+        }
+    }
+
+    fun openAppInfo(app: AppModel) {
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", app.packageName, null)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            // Fallback
+        }
+    }
+
+    fun uninstallApp(app: AppModel) {
+        try {
+            val intent = Intent(Intent.ACTION_DELETE).apply {
+                data = Uri.fromParts("package", app.packageName, null)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            // Fallback
+        }
+    }
+
+    fun searchWeb(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return
+        try {
+            val intent = Intent(Intent.ACTION_WEB_SEARCH).apply {
+                putExtra(SearchManager.QUERY, trimmed)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            try {
+                val url = "https://www.google.com/search?q=" + URLEncoder.encode(trimmed, "UTF-8")
+                val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(webIntent)
+            } catch (ex: Exception) {
+                // Fallback
+            }
+        }
+    }
+
+    fun openClock() {
+        try {
+            val intent = Intent(AlarmClock.ACTION_SHOW_ALARMS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            try {
+                val intent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory("android.intent.category.APP_CLOCK")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            } catch (ex: Exception) {
+                // Fallback
+            }
+        }
+    }
+
+    fun openCalendar() {
+        try {
+            val builder = CalendarContract.CONTENT_URI.buildUpon().appendPath("time")
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                data = builder.build()
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            try {
+                val intent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_APP_CALENDAR)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            } catch (ex: Exception) {
+                // Fallback
+            }
         }
     }
 }
+
