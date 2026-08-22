@@ -16,5 +16,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "VelocityLauncher"
+rootProject.name = "Nirantara"
 include(":app")
