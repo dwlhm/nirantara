@@ -4,6 +4,7 @@ import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetProviderInfo
 import android.content.Context
+import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -31,6 +32,14 @@ class ScrollAwareAppWidgetHost(
 
 class ScrollAwareAppWidgetHostView(context: Context) : AppWidgetHostView(context) {
 
+    var onLongPressListener: (() -> Unit)? = null
+
+    private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onLongPress(e: MotionEvent) {
+            onLongPressListener?.invoke()
+        }
+    })
+
     private var startX = 0f
     private var startY = 0f
     private var isVerticallyScrollableTarget = false
@@ -38,6 +47,7 @@ class ScrollAwareAppWidgetHostView(context: Context) : AppWidgetHostView(context
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        gestureDetector.onTouchEvent(ev)
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 startX = ev.x
@@ -64,6 +74,7 @@ class ScrollAwareAppWidgetHostView(context: Context) : AppWidgetHostView(context
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                parent?.requestDisallowInterceptTouchEvent(false)
                 isVerticallyScrollableTarget = false
                 isHorizontallyScrollableTarget = false
             }

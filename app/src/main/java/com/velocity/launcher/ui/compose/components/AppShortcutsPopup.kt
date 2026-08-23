@@ -1,16 +1,10 @@
 package com.velocity.launcher.ui.compose.components
 
-import android.appwidget.AppWidgetHost
-import android.appwidget.AppWidgetManager
-import android.appwidget.AppWidgetProviderInfo
 import android.content.pm.ShortcutInfo
-import android.os.Build
 import android.text.format.DateUtils
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -32,21 +26,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -71,8 +60,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.velocity.launcher.data.AppModel
 import com.velocity.launcher.data.AppNotificationModel
-import com.velocity.launcher.ui.theme.SoftTextShadow
-
 @Composable
 fun AppShortcutsPopup(
     app: AppModel,
@@ -83,22 +70,14 @@ fun AppShortcutsPopup(
     focalOffsetDp: Dp = 180.dp,
     getIconBitmap: (AppModel) -> ImageBitmap?,
     getShortcutIconBitmap: (ShortcutInfo) -> ImageBitmap?,
-    getWidgetCustomHeight: (widgetId: Int) -> Int? = { null },
-    onSaveWidgetCustomHeight: (widgetId: Int, heightDp: Int?) -> Unit = { _, _ -> },
     onShortcutClick: (ShortcutInfo) -> Unit,
     onNotificationClick: (AppNotificationModel) -> Unit,
     onDismissNotification: (AppNotificationModel) -> Unit,
     onRequestNotificationAccess: () -> Unit,
     onOpenDefaultLauncherSettings: () -> Unit = {},
-    onAddWidgetClick: () -> Unit,
-    onConfigureWidgetClick: (widgetId: Int, providerInfo: AppWidgetProviderInfo) -> Unit,
-    onRemoveWidgetClick: (widgetId: Int) -> Unit,
-    appWidgetHost: AppWidgetHost,
-    appWidgetManager: AppWidgetManager,
     onDismissRequest: () -> Unit
 ) {
     val iconBitmap = remember(app.id) { getIconBitmap(app) }
-    var isEditMode by remember { mutableStateOf(false) }
     var isNotificationsExpanded by remember { mutableStateOf(true) }
     val contentHorizontalPadding = 40.dp
 
@@ -140,25 +119,6 @@ fun AppShortcutsPopup(
                 }
                 return super.onPostFling(consumed, available)
             }
-        }
-    }
-
-    // Progressive render delay to ensure frame 0 instant transition
-    var isProgressiveReady by remember(app.id) { mutableStateOf(false) }
-    LaunchedEffect(app.id) {
-        kotlinx.coroutines.delay(40L)
-        isProgressiveReady = true
-    }
-
-    val hasAvailableWidgets = remember(app.packageName) {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                appWidgetManager.getInstalledProvidersForPackage(app.packageName, app.userHandle).isNotEmpty()
-            } else {
-                appWidgetManager.installedProviders.any { it.provider.packageName == app.packageName }
-            }
-        } catch (e: Exception) {
-            false
         }
     }
 
@@ -230,30 +190,6 @@ fun AppShortcutsPopup(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                if (hasAvailableWidgets) {
-                    IconButton(
-                        onClick = onAddWidgetClick,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Widgets,
-                            contentDescription = "Add Widget",
-                            tint = Color.White.copy(alpha = 0.9f),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-                IconButton(
-                    onClick = { isEditMode = !isEditMode },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Tune,
-                        contentDescription = "Popup Settings",
-                        tint = if (isEditMode) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.9f),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
                 IconButton(
                     onClick = onDismissRequest,
                     modifier = Modifier.size(32.dp)
@@ -385,8 +321,8 @@ fun AppShortcutsPopup(
                 }
             }
 
-            // 2. Enable Notification Permission button (Visible ONLY when isEditMode && !isNotificationAccessGranted)
-            if (isEditMode && !isNotificationAccessGranted) {
+            // 2. Enable Notification Permission button (if permission not granted)
+            if (!isNotificationAccessGranted) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -515,283 +451,11 @@ fun AppShortcutsPopup(
                 }
             }
 
-            // Attached Widgets Section (Full Width, 0 horizontal padding):
-            if (app.popupWidgetIds.isNotEmpty()) {
+            // 5. Empty State Fallback (when empty)
+            val isEmpty = notifications.isEmpty() && shortcuts.isEmpty()
+            if (isEmpty && hasShortcutHostPermission) {
                 Text(
-                    text = if (app.popupWidgetIds.size > 1) "Pop-up Widgets" else "Pop-up Widget",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = contentHorizontalPadding)
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-
-                app.popupWidgetIds.forEach { widgetId ->
-                    if (!isProgressiveReady) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(140.dp)
-                                .background(Color.White.copy(alpha = 0.05f))
-                        )
-                    } else {
-                        val providerInfo = remember(widgetId) { appWidgetManager.getAppWidgetInfo(widgetId) }
-                        var currentHeightDp by remember(widgetId) { mutableStateOf(getWidgetCustomHeight(widgetId)) }
-                        var isDragging by remember { mutableStateOf(false) }
-                        val density = LocalDensity.current.density
-
-                        if (isEditMode) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                // Main widget frame with accent border
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .border(
-                                            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                                        )
-                                ) {
-                                    WidgetHostContainer(
-                                        appWidgetId = widgetId,
-                                        appWidgetHost = appWidgetHost,
-                                        appWidgetManager = appWidgetManager,
-                                        customHeightDp = currentHeightDp
-                                    )
-                                }
-
-                                // 4 Corner dots
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .align(Alignment.TopStart)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary)
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .align(Alignment.TopEnd)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary)
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .align(Alignment.BottomStart)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary)
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .align(Alignment.BottomEnd)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary)
-                                )
-
-                                // Side indicator dots / handles (Left and Right midpoint circles)
-                                Box(
-                                    modifier = Modifier
-                                        .size(10.dp)
-                                        .align(Alignment.CenterStart)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary)
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(10.dp)
-                                        .align(Alignment.CenterEnd)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary)
-                                )
-
-                                // Top Grab Handle
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopCenter)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(MaterialTheme.colorScheme.primary)
-                                        .pointerInput(Unit) {
-                                            detectVerticalDragGestures(
-                                                onDragStart = { isDragging = true },
-                                                onDragEnd = {
-                                                    isDragging = false
-                                                    onSaveWidgetCustomHeight(widgetId, currentHeightDp)
-                                                },
-                                                onDragCancel = { isDragging = false }
-                                            ) { change, dragAmount ->
-                                                change.consume()
-                                                val deltaDp = (dragAmount / density).toInt()
-                                                val base = currentHeightDp ?: 160
-                                                currentHeightDp = (base - deltaDp).coerceIn(60, 800)
-                                            }
-                                        }
-                                        .size(width = 36.dp, height = 12.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(width = 16.dp, height = 2.dp)
-                                            .clip(RoundedCornerShape(1.dp))
-                                            .background(MaterialTheme.colorScheme.onPrimary)
-                                    )
-                                }
-
-                                // Bottom Grab Handle
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomCenter)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(MaterialTheme.colorScheme.primary)
-                                        .pointerInput(Unit) {
-                                            detectVerticalDragGestures(
-                                                onDragStart = { isDragging = true },
-                                                onDragEnd = {
-                                                    isDragging = false
-                                                    onSaveWidgetCustomHeight(widgetId, currentHeightDp)
-                                                },
-                                                onDragCancel = { isDragging = false }
-                                            ) { change, dragAmount ->
-                                                change.consume()
-                                                val deltaDp = (dragAmount / density).toInt()
-                                                val base = currentHeightDp ?: 160
-                                                currentHeightDp = (base + deltaDp).coerceIn(60, 800)
-                                            }
-                                        }
-                                        .size(width = 36.dp, height = 12.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(width = 16.dp, height = 2.dp)
-                                            .clip(RoundedCornerShape(1.dp))
-                                            .background(MaterialTheme.colorScheme.onPrimary)
-                                    )
-                                }
-
-                                // Size Badge (While dragging or in edit mode when custom height is set)
-                                if (isDragging || currentHeightDp != null) {
-                                    Surface(
-                                        modifier = Modifier
-                                            .align(Alignment.TopStart)
-                                            .padding(start = 12.dp, top = 8.dp),
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = Color.Black.copy(alpha = 0.75f)
-                                    ) {
-                                        Text(
-                                            text = "${currentHeightDp ?: 160} dp",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-
-                                // Action Overlay (Reset Size, Configure, Remove)
-                                Row(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(6.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color.Black.copy(alpha = 0.65f))
-                                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    if (currentHeightDp != null) {
-                                        IconButton(
-                                            onClick = {
-                                                currentHeightDp = null
-                                                onSaveWidgetCustomHeight(widgetId, null)
-                                            },
-                                            modifier = Modifier.size(28.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.RestartAlt,
-                                                contentDescription = "Reset Size",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                    }
-                                    if (providerInfo?.configure != null) {
-                                        IconButton(
-                                            onClick = { onConfigureWidgetClick(widgetId, providerInfo) },
-                                            modifier = Modifier.size(28.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Edit,
-                                                contentDescription = "Configure Widget",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                    }
-                                    IconButton(
-                                        onClick = { onRemoveWidgetClick(widgetId) },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.DeleteOutline,
-                                            contentDescription = "Remove Widget",
-                                            tint = MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            WidgetHostContainer(
-                                appWidgetId = widgetId,
-                                appWidgetHost = appWidgetHost,
-                                appWidgetManager = appWidgetManager,
-                                customHeightDp = currentHeightDp,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-
-            // 6. Add Widget Button in Edit Mode
-            if (isEditMode && hasAvailableWidgets) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = contentHorizontalPadding, vertical = 4.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
-                        .clickable { onAddWidgetClick() }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Widgets,
-                        contentDescription = "Attach Pop-up Widget",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "+ Attach Pop-up Widget",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            // 7. Empty State Fallback (when empty and NOT in edit mode)
-            val isEmpty = notifications.isEmpty() && shortcuts.isEmpty() && app.popupWidgetIds.isEmpty()
-            if (isEmpty && !isEditMode && hasShortcutHostPermission) {
-                Text(
-                    text = "No notifications or widgets available.",
+                    text = "No notifications or shortcuts available.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     modifier = Modifier.padding(horizontal = contentHorizontalPadding, vertical = 8.dp)

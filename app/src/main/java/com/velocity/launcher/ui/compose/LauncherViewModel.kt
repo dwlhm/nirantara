@@ -24,6 +24,7 @@ import com.velocity.launcher.data.SolidColorPreset
 import com.velocity.launcher.data.ThemeMode
 import com.velocity.launcher.data.TopSpacingMode
 import com.velocity.launcher.data.WallpaperColorExtractor
+import com.velocity.launcher.data.WidgetGridPlacement
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -82,6 +83,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             val topSpacing = preferencesManager.topSpacingMode
             val haptic = preferencesManager.hapticFeedbackEnabled
             val topWidget = preferencesManager.topWidgetId
+            val topWidgetIds = preferencesManager.getTopWidgetIds()
             val history = preferencesManager.getSearchHistory()
             val launchCounts = preferencesManager.getSearchLaunchCounts()
             val savedWallpaperPath = preferencesManager.customWallpaperPath
@@ -191,7 +193,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     availableAlphabet = availableAlphabet,
                     letterToScrollIndex = indexMap,
                     hiddenApps = hiddenApps,
-                    topWidgetId = topWidget,
+                    topWidgetId = topWidgetIds.firstOrNull() ?: topWidget,
+                    topWidgetIds = topWidgetIds,
                     scrollbarPosition = scrollbarPos,
                     scrollbarVerticalAlignment = scrollbarVertAlign,
                     backgroundType = bgType,
@@ -379,6 +382,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         appWidgetHost?.deleteAppWidgetId(widgetId)
         preferencesManager.removePopupWidgetForApp(packageName, widgetId)
         preferencesManager.setWidgetCustomHeight(widgetId, null)
+        preferencesManager.setWidgetCustomSpan(widgetId, null)
+        preferencesManager.removeWidgetGridPlacement(widgetId)
         val updatedIds = preferencesManager.getPopupWidgetsForApp(packageName)
         _state.update { current ->
             val updatedPopupApp = if (current.activePopupApp?.packageName == packageName) {
@@ -393,7 +398,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             }
             current.copy(
                 activePopupApp = updatedPopupApp,
-                activeBottomSheetApp = updatedBottomSheetApp
+                activeBottomSheetApp = updatedBottomSheetApp,
+                widgetsRevision = current.widgetsRevision + 1
             )
         }
         loadApps()
@@ -415,7 +421,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             }
             current.copy(
                 activePopupApp = updatedPopupApp,
-                activeBottomSheetApp = updatedBottomSheetApp
+                activeBottomSheetApp = updatedBottomSheetApp,
+                widgetsRevision = current.widgetsRevision + 1
             )
         }
         loadApps()
@@ -425,17 +432,92 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun saveWidgetCustomHeight(widgetId: Int, heightDp: Int?) {
         preferencesManager.setWidgetCustomHeight(widgetId, heightDp)
+        _state.update { it.copy(widgetsRevision = it.widgetsRevision + 1) }
     }
 
-    // Top Header Widget
+    // Top Header Widgets
+    fun addTopWidget(widgetId: Int) {
+        preferencesManager.addTopWidgetId(widgetId)
+        val ids = preferencesManager.getTopWidgetIds()
+        _state.update { it.copy(topWidgetIds = ids, topWidgetId = ids.firstOrNull() ?: -1, widgetsRevision = it.widgetsRevision + 1) }
+    }
+
+    fun removeTopWidget(widgetId: Int, appWidgetHost: AppWidgetHost? = null) {
+        appWidgetHost?.deleteAppWidgetId(widgetId)
+        preferencesManager.removeTopWidgetId(widgetId)
+        preferencesManager.setWidgetCustomSpan(widgetId, null)
+        preferencesManager.setWidgetCustomHeight(widgetId, null)
+        preferencesManager.removeWidgetGridPlacement(widgetId)
+        val ids = preferencesManager.getTopWidgetIds()
+        _state.update { current ->
+            current.copy(
+                topWidgetIds = ids,
+                topWidgetId = ids.firstOrNull() ?: -1,
+                widgetsRevision = current.widgetsRevision + 1
+            )
+        }
+    }
+
     fun setTopWidgetId(widgetId: Int) {
-        preferencesManager.topWidgetId = widgetId
-        _state.update { it.copy(topWidgetId = widgetId) }
+        if (widgetId == -1) {
+            removeTopWidget()
+        } else {
+            addTopWidget(widgetId)
+        }
     }
 
     fun removeTopWidget() {
-        preferencesManager.topWidgetId = -1
-        _state.update { it.copy(topWidgetId = -1) }
+        val first = _state.value.topWidgetIds.firstOrNull() ?: _state.value.topWidgetId
+        if (first != -1) {
+            removeTopWidget(first)
+        } else {
+            preferencesManager.topWidgetId = -1
+            preferencesManager.setTopWidgetIds(emptyList())
+            _state.update { it.copy(topWidgetId = -1, topWidgetIds = emptyList(), widgetsRevision = it.widgetsRevision + 1) }
+        }
+    }
+
+    // Freeform 8-Column Grid Placement: row (0..), startCol (0..7), span (1..8)
+    fun getWidgetGridPlacement(widgetId: Int): WidgetGridPlacement? = preferencesManager.getWidgetGridPlacement(widgetId)
+
+    fun saveWidgetGridPlacement(widgetId: Int, row: Int, startCol: Int, span: Int) {
+        val validRow = row.coerceAtLeast(0)
+        val validStart = startCol.coerceIn(0, 7)
+        val validSpan = span.coerceIn(1, 8 - validStart)
+        preferencesManager.setWidgetGridPlacement(widgetId, validRow, validStart, validSpan)
+        _state.update { it.copy(widgetsRevision = it.widgetsRevision + 1) }
+    }
+
+    fun resetWidgetGridPlacement(widgetId: Int) {
+        preferencesManager.removeWidgetGridPlacement(widgetId)
+        preferencesManager.setWidgetCustomSpan(widgetId, null)
+        _state.update { it.copy(widgetsRevision = it.widgetsRevision + 1) }
+    }
+
+    // Widget Column Span (1..8) (legacy compatibility)
+    fun getWidgetCustomSpan(widgetId: Int): Int? = preferencesManager.getWidgetCustomSpan(widgetId)
+
+    fun saveWidgetCustomSpan(widgetId: Int, span: Int?) {
+        preferencesManager.setWidgetCustomSpan(widgetId, span)
+        if (span != null) {
+            val validSpan = span.coerceIn(1, 8)
+            preferencesManager.setWidgetGridPlacement(widgetId, 0, 0, validSpan)
+        } else {
+            preferencesManager.removeWidgetGridPlacement(widgetId)
+        }
+        _state.update { it.copy(widgetsRevision = it.widgetsRevision + 1) }
+    }
+
+    // Per-App Inline Widget Exposure
+    fun toggleAppWidgetInlineExposure(packageName: String) {
+        val isFav = preferencesManager.getFavoriteApps().contains(packageName)
+        preferencesManager.toggleWidgetExposedInline(packageName, isFav)
+        loadApps()
+    }
+
+    // Active In-Situ Editing Container
+    fun setActiveEditingContainer(containerKey: String?) {
+        _state.update { it.copy(activeEditingContainerKey = containerKey) }
     }
 
     // App Actions

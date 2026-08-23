@@ -190,24 +190,24 @@ fun AppOptionsBottomSheet(
                 onClick = onToggleFavorite
             )
 
-            // 2. Attach / Add Pop-up Widget
+            // 2. Attach / Add Widget
             OptionItem(
                 icon = Icons.Default.Widgets,
                 iconTint = MaterialTheme.colorScheme.primary,
                 title = if (app.popupWidgetIds.isNotEmpty()) {
-                    "Add Pop-up Widget"
+                    "Add Widget"
                 } else {
-                    "Attach Pop-up Widget"
+                    "Attach Widget"
                 },
                 onClick = onAttachOrChangeWidget
             )
 
-            // Remove all pop-up widgets option if configured
+            // Remove widget option if configured
             if (app.popupWidgetIds.isNotEmpty()) {
                 OptionItem(
                     icon = Icons.Default.DeleteOutline,
                     iconTint = MaterialTheme.colorScheme.error,
-                    title = if (app.popupWidgetIds.size > 1) "Remove All Pop-up Widgets" else "Remove Pop-up Widget",
+                    title = if (app.popupWidgetIds.size > 1) "Remove All Widgets" else "Remove Widget",
                     onClick = onRemoveWidget
                 )
             }

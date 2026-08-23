@@ -1,5 +1,8 @@
 package com.velocity.launcher.ui.compose.components
 
+import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProviderInfo
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
@@ -7,12 +10,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -43,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.velocity.launcher.data.AppModel
+import com.velocity.launcher.data.WidgetGridPlacement
 import com.velocity.launcher.ui.theme.AppLabelFontSize
 import com.velocity.launcher.ui.theme.SoftTextShadow
 import kotlinx.coroutines.coroutineScope
@@ -58,7 +64,20 @@ fun AppListItem(
     onSwipeRight: () -> Unit,
     onSwipeLeftOrLongPress: () -> Unit,
     modifier: Modifier = Modifier,
-    isFavoriteItem: Boolean = false
+    isFavoriteItem: Boolean = false,
+    activeEditingContainerKey: String? = null,
+    widgetsRevision: Long = 0L,
+    onSetActiveEditingContainer: (String?) -> Unit = {},
+    getWidgetGridPlacement: (Int) -> WidgetGridPlacement? = { null },
+    onSaveWidgetGridPlacement: (Int, Int, Int, Int) -> Unit = { _, _, _, _ -> },
+    onResetWidgetGridPlacement: (Int) -> Unit = {},
+    getWidgetCustomHeight: (Int) -> Int? = { null },
+    onSaveWidgetCustomHeight: (Int, Int?) -> Unit = { _, _ -> },
+    onConfigureWidgetClick: (Int, AppWidgetProviderInfo) -> Unit = { _, _ -> },
+    onRemoveWidgetClick: (String, Int) -> Unit = { _, _ -> },
+    onAddWidgetClick: ((AppModel) -> Unit)? = null,
+    appWidgetHost: AppWidgetHost? = null,
+    appWidgetManager: AppWidgetManager? = null
 ) {
     val coroutineScope = rememberCoroutineScope()
     val offsetX = remember { Animatable(0f) }
@@ -73,202 +92,239 @@ fun AppListItem(
     val primaryContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
     val errorContainerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
 
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 2.dp)
-            .pointerInput(app.id) {
-                coroutineScope {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        val downId = down.id
-                        var isDrag = false
-                        var isCancelled = false
-                        var isUp = false
-                        var totalDeltaX = 0f
-                        var totalDeltaY = 0f
-                        var longPressFired = false
-
-                        val longPressJob = launch {
-                            delay(viewConfiguration.longPressTimeoutMillis)
-                            if (!isDrag && !isCancelled) {
-                                longPressFired = true
-                                currentOnSwipeLeftOrLongPress.value()
-                            }
-                        }
-
-                        try {
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val current: PointerInputChange? = event.changes.firstOrNull { it.id == downId }
-                                if (current == null) {
-                                    isCancelled = true
-                                    break
-                                }
-
-                                if (current.isConsumed) {
-                                    isCancelled = true
-                                    break
-                                }
-
-                                if (current.changedToUp()) {
-                                    isUp = true
-                                    current.consume()
-                                    break
-                                }
-
-                                val dragAmountX = current.position.x - current.previousPosition.x
-                                val dragAmountY = current.position.y - current.previousPosition.y
-                                totalDeltaX += dragAmountX
-                                totalDeltaY += dragAmountY
-
-                                if (!isDrag) {
-                                    val absX = abs(totalDeltaX)
-                                    val absY = abs(totalDeltaY)
-                                    val touchSlop = viewConfiguration.touchSlop
-                                    val horizontalSlop = touchSlop * 1.75f
-
-                                    if ((absY > touchSlop * 0.75f && absY > absX * 0.8f) || absY > touchSlop) {
-                                        isCancelled = true
-                                        longPressJob.cancel()
-                                        break
-                                    } else if (absX > horizontalSlop && absX > absY * 2.0f) {
-                                        isDrag = true
-                                        longPressJob.cancel()
-                                    }
-                                }
-
-                                if (isDrag) {
-                                    current.consume()
-                                    val newOffset = (offsetX.value + dragAmountX).coerceIn(
-                                        -swipeThresholdPx * 1.5f,
-                                        swipeThresholdPx * 1.5f
-                                    )
-                                    coroutineScope.launch {
-                                        offsetX.snapTo(newOffset)
-                                    }
-                                }
-                            }
-                        } finally {
-                            longPressJob.cancel()
-                        }
-
-                        if (isCancelled) {
-                            while (true) {
-                                val passEvent = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Final)
-                                if (passEvent.changes.all { !it.pressed }) break
-                            }
-                        }
-
-                        val finalOffset = offsetX.value
-                        if (isDrag) {
-                            coroutineScope.launch {
-                                offsetX.animateTo(0f, spring())
-                            }
-                            if (finalOffset > swipeThresholdPx) {
-                                currentOnSwipeRight.value()
-                            } else if (finalOffset < -swipeThresholdPx) {
-                                currentOnSwipeLeftOrLongPress.value()
-                            }
-                        } else if (isUp && !isCancelled && !longPressFired &&
-                            abs(totalDeltaX) <= viewConfiguration.touchSlop &&
-                            abs(totalDeltaY) <= viewConfiguration.touchSlop
-                        ) {
-                            currentOnClick.value()
-                        }
-                    }
-                }
-            }
+    Column(
+        modifier = modifier.fillMaxWidth()
     ) {
-        Row(
+        Box(
             modifier = Modifier
-                .graphicsLayer {
-                    translationX = offsetX.value
-                }
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .drawBehind {
-                    val currentOffset = offsetX.value
-                    val color = when {
-                        currentOffset > 10f -> primaryContainerColor
-                        currentOffset < -10f -> errorContainerColor
-                        else -> Color.Transparent
+                .padding(horizontal = 16.dp, vertical = 2.dp)
+                .pointerInput(app.id) {
+                    coroutineScope {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val downId = down.id
+                            var isDrag = false
+                            var isCancelled = false
+                            var isUp = false
+                            var totalDeltaX = 0f
+                            var totalDeltaY = 0f
+                            var longPressFired = false
+
+                            val longPressJob = launch {
+                                delay(viewConfiguration.longPressTimeoutMillis)
+                                if (!isDrag && !isCancelled) {
+                                    longPressFired = true
+                                    currentOnSwipeLeftOrLongPress.value()
+                                }
+                            }
+
+                            try {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val current: PointerInputChange? = event.changes.firstOrNull { it.id == downId }
+                                    if (current == null) {
+                                        isCancelled = true
+                                        break
+                                    }
+
+                                    if (current.isConsumed) {
+                                        isCancelled = true
+                                        break
+                                    }
+
+                                    if (current.changedToUp()) {
+                                        isUp = true
+                                        current.consume()
+                                        break
+                                    }
+
+                                    val dragAmountX = current.position.x - current.previousPosition.x
+                                    val dragAmountY = current.position.y - current.previousPosition.y
+                                    totalDeltaX += dragAmountX
+                                    totalDeltaY += dragAmountY
+
+                                    if (!isDrag) {
+                                        val absX = abs(totalDeltaX)
+                                        val absY = abs(totalDeltaY)
+                                        val touchSlop = viewConfiguration.touchSlop
+                                        val horizontalSlop = touchSlop * 1.75f
+
+                                        if ((absY > touchSlop * 0.75f && absY > absX * 0.8f) || absY > touchSlop) {
+                                            isCancelled = true
+                                            longPressJob.cancel()
+                                            break
+                                        } else if (absX > horizontalSlop && absX > absY * 2.0f) {
+                                            isDrag = true
+                                            longPressJob.cancel()
+                                        }
+                                    }
+
+                                    if (isDrag) {
+                                        current.consume()
+                                        val newOffset = (offsetX.value + dragAmountX).coerceIn(
+                                            -swipeThresholdPx * 1.5f,
+                                            swipeThresholdPx * 1.5f
+                                        )
+                                        coroutineScope.launch {
+                                            offsetX.snapTo(newOffset)
+                                        }
+                                    }
+                                }
+                            } finally {
+                                longPressJob.cancel()
+                            }
+
+                            if (isCancelled) {
+                                while (true) {
+                                    val passEvent = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Final)
+                                    if (passEvent.changes.all { !it.pressed }) break
+                                }
+                            }
+
+                            val finalOffset = offsetX.value
+                            if (isDrag) {
+                                coroutineScope.launch {
+                                    offsetX.animateTo(0f, spring())
+                                }
+                                if (finalOffset > swipeThresholdPx) {
+                                    currentOnSwipeRight.value()
+                                } else if (finalOffset < -swipeThresholdPx) {
+                                    currentOnSwipeLeftOrLongPress.value()
+                                }
+                            } else if (isUp && !isCancelled && !longPressFired &&
+                                abs(totalDeltaX) <= viewConfiguration.touchSlop &&
+                                abs(totalDeltaY) <= viewConfiguration.touchSlop
+                            ) {
+                                if (activeEditingContainerKey != null) {
+                                    onSetActiveEditingContainer(null)
+                                } else {
+                                    currentOnClick.value()
+                                }
+                            }
+                        }
                     }
-                    if (color != Color.Transparent) {
-                        drawRoundRect(
-                            color = color,
-                            cornerRadius = CornerRadius(12.dp.toPx(), 12.dp.toPx())
+                }
+        ) {
+            Row(
+                modifier = Modifier
+                    .graphicsLayer {
+                        translationX = offsetX.value
+                    }
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .drawBehind {
+                        val currentOffset = offsetX.value
+                        val color = when {
+                            currentOffset > 10f -> primaryContainerColor
+                            currentOffset < -10f -> errorContainerColor
+                            else -> Color.Transparent
+                        }
+                        if (color != Color.Transparent) {
+                            drawRoundRect(
+                                color = color,
+                                cornerRadius = CornerRadius(12.dp.toPx(), 12.dp.toPx())
+                            )
+                        }
+                    }
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // App Icon (38dp)
+                Box(
+                    modifier = Modifier.size(38.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (iconBitmap != null) {
+                        Image(
+                            bitmap = iconBitmap,
+                            contentDescription = app.label,
+                            modifier = Modifier.size(38.dp)
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f))
+                        )
+                    }
+
+                    // Work profile badge indicator
+                    if (app.isWorkProfile) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
                         )
                     }
                 }
-                .padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // App Icon (38dp)
-            Box(
-                modifier = Modifier.size(38.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                if (iconBitmap != null) {
-                    Image(
-                        bitmap = iconBitmap,
-                        contentDescription = app.label,
-                        modifier = Modifier.size(38.dp)
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f))
-                    )
-                }
 
-                // Work profile badge indicator
-                if (app.isWorkProfile) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .size(12.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary)
-                    )
-                }
-            }
+                Spacer(modifier = Modifier.width(16.dp))
 
-            Spacer(modifier = Modifier.width(16.dp))
-
-            // App Label
-            Text(
-                text = app.label,
-                style = LocalTextStyle.current.copy(shadow = SoftTextShadow),
-                color = MaterialTheme.colorScheme.onBackground,
-                fontSize = AppLabelFontSize,
-                fontWeight = if (isFavoriteItem) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-
-            // Attached Pop-up Widget Indicator
-            if (app.popupWidgetId != null && app.popupWidgetId != -1) {
-                Icon(
-                    imageVector = Icons.Default.Widgets,
-                    contentDescription = "Widget attached",
-                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                    modifier = Modifier
-                        .size(16.dp)
-                        .padding(end = 4.dp)
+                // App Label
+                Text(
+                    text = app.label,
+                    style = LocalTextStyle.current.copy(shadow = SoftTextShadow),
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = AppLabelFontSize,
+                    fontWeight = if (isFavoriteItem) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
-            }
 
-            // Favorite Indicator Star
-            if (app.isFavorite && !isFavoriteItem) {
-                Icon(
-                    imageVector = Icons.Default.Star,
-                    contentDescription = "Favorite",
-                    tint = Color(0xFFFFD700).copy(alpha = 0.7f),
-                    modifier = Modifier.size(14.dp)
+                // Attached Pop-up Widget Indicator
+                if (app.popupWidgetId != null && app.popupWidgetId != -1) {
+                    Icon(
+                        imageVector = Icons.Default.Widgets,
+                        contentDescription = "Widget attached",
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                        modifier = Modifier
+                            .size(16.dp)
+                            .padding(end = 4.dp)
+                    )
+                }
+
+                // Favorite Indicator Star
+                if (app.isFavorite && !isFavoriteItem) {
+                    Icon(
+                        imageVector = Icons.Default.Star,
+                        contentDescription = "Favorite",
+                        tint = Color(0xFFFFD700).copy(alpha = 0.7f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+        }
+
+        // Inline Widgets Grid (if present)
+        val isContainerEditing = activeEditingContainerKey == "app_${app.packageName}"
+        if ((app.popupWidgetIds.isNotEmpty() || isContainerEditing) && appWidgetHost != null && appWidgetManager != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight()
+            ) {
+                WidgetFlowGrid(
+                    widgetIds = app.popupWidgetIds,
+                    isContainerEditing = isContainerEditing,
+                    widgetsRevision = widgetsRevision,
+                    onTriggerContainerEdit = { onSetActiveEditingContainer("app_${app.packageName}") },
+                    getWidgetGridPlacement = getWidgetGridPlacement,
+                    onSaveWidgetGridPlacement = onSaveWidgetGridPlacement,
+                    onResetWidgetGridPlacement = onResetWidgetGridPlacement,
+                    getWidgetCustomHeight = getWidgetCustomHeight,
+                    onSaveWidgetCustomHeight = onSaveWidgetCustomHeight,
+                    onConfigureWidgetClick = onConfigureWidgetClick,
+                    onRemoveWidgetClick = { widgetId -> onRemoveWidgetClick(app.packageName, widgetId) },
+                    appWidgetHost = appWidgetHost,
+                    appWidgetManager = appWidgetManager,
+                    showAddWidgetButton = isContainerEditing,
+                    onAddWidgetClick = if (onAddWidgetClick != null) { { onAddWidgetClick(app) } } else null,
+                    onFinishEditing = { onSetActiveEditingContainer(null) }
                 )
             }
         }

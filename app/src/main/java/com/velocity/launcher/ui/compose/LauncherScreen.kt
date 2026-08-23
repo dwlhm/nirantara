@@ -5,6 +5,7 @@ import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -145,10 +146,16 @@ fun LauncherScreen(
     var isolatedLetter by remember { mutableStateOf<String?>(null) }
     var isolationJob by remember { mutableStateOf<Job?>(null) }
 
+    BackHandler(enabled = state.activeEditingContainerKey != null) {
+        viewModel.setActiveEditingContainer(null)
+    }
+
     LaunchedEffect(listState.isScrollInProgress) {
-        if (listState.isScrollInProgress && isolatedLetter != null) {
-            isolatedLetter = null
-            isolationJob?.cancel()
+        if (listState.isScrollInProgress) {
+            if (isolatedLetter != null) {
+                isolatedLetter = null
+                isolationJob?.cancel()
+            }
         }
     }
 
@@ -227,7 +234,7 @@ fun LauncherScreen(
                     if (pending.targetAppPackage != null) {
                         viewModel.addAppPopupWidget(pending.targetAppPackage, pending.appWidgetId)
                     } else {
-                        viewModel.setTopWidgetId(pending.appWidgetId)
+                        viewModel.addTopWidget(pending.appWidgetId)
                     }
                 }
             } else {
@@ -257,7 +264,7 @@ fun LauncherScreen(
                         if (pending.targetAppPackage != null) {
                             viewModel.addAppPopupWidget(pending.targetAppPackage, pending.appWidgetId)
                         } else {
-                            viewModel.setTopWidgetId(pending.appWidgetId)
+                            viewModel.addTopWidget(pending.appWidgetId)
                         }
                     }
                     pendingWidgetConfig = null
@@ -293,7 +300,7 @@ fun LauncherScreen(
                 if (targetApp != null) {
                     viewModel.addAppPopupWidget(targetApp.packageName, appWidgetId)
                 } else {
-                    viewModel.setTopWidgetId(appWidgetId)
+                    viewModel.addTopWidget(appWidgetId)
                 }
             }
         } else {
@@ -400,6 +407,7 @@ fun LauncherScreen(
         // Main Vertical Ergonomic Apps List
         LazyColumn(
             state = listState,
+            userScrollEnabled = true,
             modifier = Modifier
                 .fillMaxSize()
                 .nestedScroll(bottomOverscrollConnection)
@@ -431,12 +439,23 @@ fun LauncherScreen(
                     }
                     NirantaraHeader(
                         batteryState = state.batteryState,
+                        topWidgetIds = state.topWidgetIds,
                         topWidgetId = state.topWidgetId,
+                        activeEditingContainerKey = state.activeEditingContainerKey,
+                        widgetsRevision = state.widgetsRevision,
                         appWidgetHost = appWidgetHost,
                         appWidgetManager = appWidgetManager,
                         onClockClick = { viewModel.openClock() },
                         onCalendarClick = { viewModel.openCalendar() },
-                        onRemoveTopWidgetClick = { viewModel.removeTopWidget() }
+                        onAddTopWidgetClick = { viewModel.openWidgetPicker(null) },
+                        onRemoveTopWidgetClick = { widgetId -> viewModel.removeTopWidget(widgetId, appWidgetHost) },
+                        onSetActiveEditingContainer = { key -> viewModel.setActiveEditingContainer(key) },
+                        onConfigureWidgetClick = { widgetId, providerInfo -> handleConfigureExistingWidget(widgetId, providerInfo) },
+                        getWidgetGridPlacement = viewModel::getWidgetGridPlacement,
+                        onSaveWidgetGridPlacement = viewModel::saveWidgetGridPlacement,
+                        onResetWidgetGridPlacement = viewModel::resetWidgetGridPlacement,
+                        getWidgetCustomHeight = viewModel::getWidgetCustomHeight,
+                        onSaveWidgetCustomHeight = viewModel::saveWidgetCustomHeight
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -472,7 +491,20 @@ fun LauncherScreen(
                                 getIconBitmap = viewModel::getIconBitmap,
                                 onClick = { viewModel.launchApp(app) },
                                 onSwipeRight = { viewModel.openPopup(app) },
-                                onSwipeLeftOrLongPress = { viewModel.openBottomSheet(app) }
+                                onSwipeLeftOrLongPress = { viewModel.openBottomSheet(app) },
+                                activeEditingContainerKey = state.activeEditingContainerKey,
+                                widgetsRevision = state.widgetsRevision,
+                                onSetActiveEditingContainer = { key -> viewModel.setActiveEditingContainer(key) },
+                                getWidgetGridPlacement = viewModel::getWidgetGridPlacement,
+                                onSaveWidgetGridPlacement = viewModel::saveWidgetGridPlacement,
+                                onResetWidgetGridPlacement = viewModel::resetWidgetGridPlacement,
+                                getWidgetCustomHeight = viewModel::getWidgetCustomHeight,
+                                onSaveWidgetCustomHeight = viewModel::saveWidgetCustomHeight,
+                                onConfigureWidgetClick = { widgetId, providerInfo -> handleConfigureExistingWidget(widgetId, providerInfo) },
+                                onRemoveWidgetClick = { pkg, widgetId -> viewModel.removeAppPopupWidget(pkg, widgetId, appWidgetHost) },
+                                onAddWidgetClick = { targetApp -> viewModel.openWidgetPicker(targetApp) },
+                                appWidgetHost = appWidgetHost,
+                                appWidgetManager = appWidgetManager
                             )
                         }
 
@@ -518,6 +550,19 @@ fun LauncherScreen(
                         onClick = { viewModel.launchApp(app) },
                         onSwipeRight = { viewModel.openPopup(app) },
                         onSwipeLeftOrLongPress = { viewModel.openBottomSheet(app) },
+                        activeEditingContainerKey = state.activeEditingContainerKey,
+                        widgetsRevision = state.widgetsRevision,
+                        onSetActiveEditingContainer = { key -> viewModel.setActiveEditingContainer(key) },
+                        getWidgetGridPlacement = viewModel::getWidgetGridPlacement,
+                        onSaveWidgetGridPlacement = viewModel::saveWidgetGridPlacement,
+                        onResetWidgetGridPlacement = viewModel::resetWidgetGridPlacement,
+                        getWidgetCustomHeight = viewModel::getWidgetCustomHeight,
+                        onSaveWidgetCustomHeight = viewModel::saveWidgetCustomHeight,
+                        onConfigureWidgetClick = { widgetId, providerInfo -> handleConfigureExistingWidget(widgetId, providerInfo) },
+                        onRemoveWidgetClick = { pkg, widgetId -> viewModel.removeAppPopupWidget(pkg, widgetId, appWidgetHost) },
+                        onAddWidgetClick = { targetApp -> viewModel.openWidgetPicker(targetApp) },
+                        appWidgetHost = appWidgetHost,
+                        appWidgetManager = appWidgetManager,
                         modifier = Modifier.graphicsLayer { alpha = sectionAlpha }
                     )
                 }
@@ -581,7 +626,7 @@ fun LauncherScreen(
                 .padding(vertical = 16.dp)
         )
 
-        // 4. Pop-up Shortcuts & Attached Widget Tooltip (Swipe Right)
+        // 4. Pop-up Shortcuts & Notifications (Swipe Right)
         AnimatedVisibility(
             visible = state.activePopupApp != null,
             enter = fadeIn(),
@@ -597,24 +642,11 @@ fun LauncherScreen(
                     focalOffsetDp = focalOffsetDp,
                     getIconBitmap = viewModel::getIconBitmap,
                     getShortcutIconBitmap = viewModel::getShortcutIconBitmap,
-                    getWidgetCustomHeight = viewModel::getWidgetCustomHeight,
-                    onSaveWidgetCustomHeight = viewModel::saveWidgetCustomHeight,
                     onShortcutClick = viewModel::launchShortcut,
                     onNotificationClick = viewModel::openNotification,
                     onDismissNotification = viewModel::dismissNotification,
                     onRequestNotificationAccess = viewModel::requestNotificationAccess,
                     onOpenDefaultLauncherSettings = viewModel::openDefaultLauncherSettings,
-                    onAddWidgetClick = {
-                        viewModel.openWidgetPicker(app)
-                    },
-                    onConfigureWidgetClick = { widgetId, providerInfo ->
-                        handleConfigureExistingWidget(widgetId, providerInfo)
-                    },
-                    onRemoveWidgetClick = { widgetId ->
-                        viewModel.removeAppPopupWidget(app.packageName, widgetId, appWidgetHost)
-                    },
-                    appWidgetHost = appWidgetHost,
-                    appWidgetManager = appWidgetManager,
                     onDismissRequest = viewModel::closePopup
                 )
             }

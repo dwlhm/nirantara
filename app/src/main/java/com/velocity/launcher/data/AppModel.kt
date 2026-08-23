@@ -13,6 +13,7 @@ data class AppModel(
     val isWorkProfile: Boolean = false,
     val isFavorite: Boolean = false,
     val isHidden: Boolean = false,
+    val isWidgetExposedInline: Boolean = false,
     val popupWidgetIds: List<Int> = emptyList(),
     val id: String = "${packageName}/${className}#${userHandle.hashCode()}",
     val normalizedLabel: String = "",

@@ -52,6 +52,12 @@ enum class TopSpacingMode {
     NONE
 }
 
+data class WidgetGridPlacement(
+    val row: Int = 0,
+    val startCol: Int = 0,
+    val span: Int = 8
+)
+
 class PreferencesManager(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -68,6 +74,10 @@ class PreferencesManager(context: Context) {
         private const val KEY_HAPTIC_FEEDBACK = "haptic_feedback"
         private const val KEY_TOP_SPACING_MODE = "top_spacing_mode"
         private const val KEY_TOP_WIDGET_ID = "top_widget_id"
+        private const val KEY_TOP_WIDGET_IDS = "top_widget_ids"
+        private const val KEY_WIDGET_CUSTOM_SPAN_PREFIX = "widget_span_"
+        private const val KEY_INLINE_EXPOSED_APPS = "inline_exposed_apps"
+        private const val KEY_INLINE_NON_EXPOSED_APPS = "inline_non_exposed_apps"
         private const val KEY_POPUP_WIDGETS = "popup_widgets"
         private const val KEY_SEARCH_HISTORY = "search_history"
         private const val KEY_SEARCH_LAUNCH_COUNTS = "search_launch_counts"
@@ -80,6 +90,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_WALLPAPER_FILTER_OPACITY = "wallpaper_filter_opacity"
         private const val KEY_WALLPAPER_FILTER_COLOR = "wallpaper_filter_color"
         private const val KEY_WIDGET_CUSTOM_HEIGHT_PREFIX = "widget_height_"
+        private const val KEY_WIDGET_GRID_PREFIX = "widget_grid_"
     }
 
     // Scrollbar Position
@@ -357,12 +368,78 @@ class PreferencesManager(context: Context) {
         setHiddenApps(current)
     }
 
-    // Top Header Widget
+    // Top Header Widgets
     var topWidgetId: Int
         get() = prefs.getInt(KEY_TOP_WIDGET_ID, -1)
         set(value) {
             prefs.edit().putInt(KEY_TOP_WIDGET_ID, value).apply()
         }
+
+    fun getTopWidgetIds(): List<Int> {
+        val raw = prefs.getString(KEY_TOP_WIDGET_IDS, null)
+        if (!raw.isNullOrBlank()) {
+            val ids = raw.split(",").mapNotNull { it.trim().toIntOrNull() }
+            if (ids.isNotEmpty()) return ids
+        }
+        val legacy = topWidgetId
+        return if (legacy != -1) listOf(legacy) else emptyList()
+    }
+
+    fun setTopWidgetIds(ids: List<Int>) {
+        if (ids.isEmpty()) {
+            prefs.edit().remove(KEY_TOP_WIDGET_IDS).apply()
+            topWidgetId = -1
+        } else {
+            prefs.edit().putString(KEY_TOP_WIDGET_IDS, ids.joinToString(",")).apply()
+            topWidgetId = ids.first()
+        }
+    }
+
+    fun addTopWidgetId(id: Int) {
+        val current = getTopWidgetIds().toMutableList()
+        if (!current.contains(id)) {
+            current.add(id)
+            setTopWidgetIds(current)
+        }
+    }
+
+    fun removeTopWidgetId(id: Int) {
+        val current = getTopWidgetIds().toMutableList()
+        current.remove(id)
+        setTopWidgetIds(current)
+    }
+
+    // Per-App Inline Widget Exposure
+    fun isWidgetExposedInline(packageName: String, isFavorite: Boolean): Boolean {
+        val nonExposed = prefs.getStringSet(KEY_INLINE_NON_EXPOSED_APPS, emptySet()) ?: emptySet()
+        if (nonExposed.contains(packageName)) return false
+        val exposed = prefs.getStringSet(KEY_INLINE_EXPOSED_APPS, emptySet()) ?: emptySet()
+        if (exposed.contains(packageName)) return true
+        return isFavorite
+    }
+
+    fun setWidgetExposedInline(packageName: String, exposed: Boolean) {
+        val exposedSet = (prefs.getStringSet(KEY_INLINE_EXPOSED_APPS, emptySet()) ?: emptySet()).toMutableSet()
+        val nonExposedSet = (prefs.getStringSet(KEY_INLINE_NON_EXPOSED_APPS, emptySet()) ?: emptySet()).toMutableSet()
+        if (exposed) {
+            exposedSet.add(packageName)
+            nonExposedSet.remove(packageName)
+        } else {
+            nonExposedSet.add(packageName)
+            exposedSet.remove(packageName)
+        }
+        prefs.edit()
+            .putStringSet(KEY_INLINE_EXPOSED_APPS, exposedSet)
+            .putStringSet(KEY_INLINE_NON_EXPOSED_APPS, nonExposedSet)
+            .apply()
+    }
+
+    fun toggleWidgetExposedInline(packageName: String, isFavorite: Boolean): Boolean {
+        val current = isWidgetExposedInline(packageName, isFavorite)
+        val next = !current
+        setWidgetExposedInline(packageName, next)
+        return next
+    }
 
     // Pop-up Widgets (stored as packageName=id1,id2,id3 entries)
     fun getPopupWidgets(): Map<String, List<Int>> {
@@ -528,5 +605,68 @@ class PreferencesManager(context: Context) {
         } else {
             prefs.edit().remove(key).apply()
         }
+    }
+
+    // Widget Custom Column Span (1..8)
+    fun getWidgetCustomSpan(widgetId: Int): Int? {
+        val key = "${KEY_WIDGET_CUSTOM_SPAN_PREFIX}$widgetId"
+        return if (prefs.contains(key)) prefs.getInt(key, -1).takeIf { it in 1..8 } else null
+    }
+
+    fun setWidgetCustomSpan(widgetId: Int, span: Int?) {
+        val key = "${KEY_WIDGET_CUSTOM_SPAN_PREFIX}$widgetId"
+        if (span != null && span in 1..8) {
+            prefs.edit().putInt(key, span).apply()
+        } else {
+            prefs.edit().remove(key).apply()
+        }
+    }
+
+    // Freeform 8-Column Grid Placement: row (0..), startCol (0..7), span (1..8) where startCol + span <= 8
+    fun getWidgetGridPlacement(widgetId: Int): WidgetGridPlacement? {
+        val key = "${KEY_WIDGET_GRID_PREFIX}$widgetId"
+        val raw = prefs.getString(key, null)
+        if (!raw.isNullOrBlank()) {
+            val parts = raw.split("_")
+            if (parts.size == 3) {
+                val row = parts[0].toIntOrNull()
+                val startCol = parts[1].toIntOrNull()
+                val span = parts[2].toIntOrNull()
+                if (row != null && startCol != null && span != null) {
+                    val validRow = row.coerceAtLeast(0)
+                    val validStart = startCol.coerceIn(0, 7)
+                    val validSpan = span.coerceIn(1, 8 - validStart)
+                    return WidgetGridPlacement(row = validRow, startCol = validStart, span = validSpan)
+                }
+            } else if (parts.size == 2) {
+                val startCol = parts[0].toIntOrNull()
+                val span = parts[1].toIntOrNull()
+                if (startCol != null && span != null) {
+                    val validStart = startCol.coerceIn(0, 7)
+                    val validSpan = span.coerceIn(1, 8 - validStart)
+                    return WidgetGridPlacement(row = 0, startCol = validStart, span = validSpan)
+                }
+            }
+        }
+        // Compatibility fallback from legacy span if present
+        val legacySpan = getWidgetCustomSpan(widgetId)
+        if (legacySpan != null) {
+            val resolvedSpan = if (legacySpan in 1..4) (legacySpan * 2).coerceIn(1, 8) else legacySpan.coerceIn(1, 8)
+            return WidgetGridPlacement(row = 0, startCol = 0, span = resolvedSpan)
+        }
+        return null
+    }
+
+    fun setWidgetGridPlacement(widgetId: Int, row: Int, startCol: Int, span: Int) {
+        val key = "${KEY_WIDGET_GRID_PREFIX}$widgetId"
+        val validRow = row.coerceAtLeast(0)
+        val validStart = startCol.coerceIn(0, 7)
+        val validSpan = span.coerceIn(1, 8 - validStart)
+        prefs.edit().putString(key, "${validRow}_${validStart}_${validSpan}").apply()
+    }
+
+    fun removeWidgetGridPlacement(widgetId: Int) {
+        val key = "${KEY_WIDGET_GRID_PREFIX}$widgetId"
+        prefs.edit().remove(key).apply()
     }
 }

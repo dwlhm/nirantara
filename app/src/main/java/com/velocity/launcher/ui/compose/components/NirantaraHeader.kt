@@ -2,11 +2,13 @@ package com.velocity.launcher.ui.compose.components
 
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProviderInfo
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,10 +44,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.velocity.launcher.data.BatteryState
+import com.velocity.launcher.data.WidgetGridPlacement
 import com.velocity.launcher.ui.theme.ClockTextShadow
 import com.velocity.launcher.ui.theme.SoftTextShadow
 import kotlinx.coroutines.delay
@@ -174,69 +178,99 @@ fun BatteryBadge(
 @Composable
 fun NirantaraHeader(
     batteryState: BatteryState,
-    topWidgetId: Int,
+    topWidgetIds: List<Int> = emptyList(),
+    topWidgetId: Int = -1,
+    activeEditingContainerKey: String? = null,
+    widgetsRevision: Long = 0L,
     appWidgetHost: AppWidgetHost,
     appWidgetManager: AppWidgetManager,
     onClockClick: () -> Unit,
     onCalendarClick: () -> Unit,
-    onRemoveTopWidgetClick: () -> Unit,
+    onAddTopWidgetClick: () -> Unit = {},
+    onRemoveTopWidgetClick: (widgetId: Int) -> Unit = {},
+    onSetActiveEditingContainer: (String?) -> Unit = {},
+    onConfigureWidgetClick: (widgetId: Int, providerInfo: AppWidgetProviderInfo) -> Unit = { _, _ -> },
+    getWidgetGridPlacement: (widgetId: Int) -> WidgetGridPlacement? = { null },
+    onSaveWidgetGridPlacement: (widgetId: Int, row: Int, startCol: Int, span: Int) -> Unit = { _, _, _, _ -> },
+    onResetWidgetGridPlacement: (widgetId: Int) -> Unit = {},
+    getWidgetCustomHeight: (widgetId: Int) -> Int? = { null },
+    onSaveWidgetCustomHeight: (widgetId: Int, heightDp: Int?) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
+    val resolvedWidgetIds = remember(topWidgetIds, topWidgetId) {
+        if (topWidgetIds.isNotEmpty()) {
+            topWidgetIds
+        } else if (topWidgetId != -1) {
+            listOf(topWidgetId)
+        } else {
+            emptyList()
+        }
+    }
+
+    val isContainerEditing = activeEditingContainerKey == "header"
+
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 16.dp)
+            .pointerInput(activeEditingContainerKey) {
+                detectTapGestures(
+                    onLongPress = {
+                        onSetActiveEditingContainer("header")
+                    }
+                )
+            }
+            .padding(vertical = 16.dp)
     ) {
-        // Digital Clock (isolated sub-composable)
-        DigitalClock(onClick = onClockClick)
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // Date and Battery Row (isolated sub-composables)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Start
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
         ) {
-            DateBadge(onClick = onCalendarClick)
+            // Digital Clock (isolated sub-composable)
+            DigitalClock(onClick = onClockClick)
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            BatteryBadge(batteryState = batteryState)
+            // Date and Battery Row (isolated sub-composables)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Start
+            ) {
+                DateBadge(onClick = onCalendarClick)
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                BatteryBadge(batteryState = batteryState)
+            }
         }
 
-        // Optional Top Widget Slot
-        if (topWidgetId != -1) {
+        // Top Header Multi-Widget Flow Grid
+        if (resolvedWidgetIds.isNotEmpty() || isContainerEditing) {
             Spacer(modifier = Modifier.height(16.dp))
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f))
-                    .padding(8.dp)
             ) {
-                WidgetHostContainer(
-                    appWidgetId = topWidgetId,
+                WidgetFlowGrid(
+                    widgetIds = resolvedWidgetIds,
+                    isContainerEditing = isContainerEditing,
+                    widgetsRevision = widgetsRevision,
+                    onTriggerContainerEdit = { onSetActiveEditingContainer("header") },
+                    getWidgetGridPlacement = getWidgetGridPlacement,
+                    onSaveWidgetGridPlacement = onSaveWidgetGridPlacement,
+                    onResetWidgetGridPlacement = onResetWidgetGridPlacement,
+                    getWidgetCustomHeight = getWidgetCustomHeight,
+                    onSaveWidgetCustomHeight = onSaveWidgetCustomHeight,
+                    onConfigureWidgetClick = onConfigureWidgetClick,
+                    onRemoveWidgetClick = onRemoveTopWidgetClick,
                     appWidgetHost = appWidgetHost,
-                    appWidgetManager = appWidgetManager
+                    appWidgetManager = appWidgetManager,
+                    showAddWidgetButton = isContainerEditing,
+                    onAddWidgetClick = onAddTopWidgetClick,
+                    onFinishEditing = { onSetActiveEditingContainer(null) }
                 )
-
-                // Quick remove top widget button
-                IconButton(
-                    onClick = onRemoveTopWidgetClick,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .size(24.dp)
-                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Remove Widget",
-                        tint = Color.White,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
             }
         }
     }

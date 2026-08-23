@@ -72,6 +72,7 @@ class AppRepository(
                 val isFavorite = favoriteAppsSet.contains(packageName)
                 val isHidden = hiddenAppsSet.contains(packageName)
                 val popupWidgetIds = popupWidgetsMap[packageName] ?: emptyList()
+                val isWidgetExposedInline = preferencesManager.isWidgetExposedInline(packageName, isFavorite)
 
                 val cacheKey = "$packageName#${handle.hashCode()}"
                 var cachedIcon = iconCache.get(cacheKey)
@@ -110,6 +111,7 @@ class AppRepository(
                     isWorkProfile = isWork,
                     isFavorite = isFavorite,
                     isHidden = isHidden,
+                    isWidgetExposedInline = isWidgetExposedInline,
                     popupWidgetIds = popupWidgetIds,
                     normalizedLabel = normalizedLabel,
                     wordPrefixes = wordPrefixes,

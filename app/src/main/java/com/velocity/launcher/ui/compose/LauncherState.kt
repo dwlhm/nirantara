@@ -40,6 +40,9 @@ data class LauncherState(
     // Header & Battery
     val batteryState: BatteryState = BatteryState(),
     val topWidgetId: Int = -1,
+    val topWidgetIds: List<Int> = emptyList(),
+    val activeEditingContainerKey: String? = null,
+    val widgetsRevision: Long = 0L,
 
     // Dialogs & Screens
     val activeBottomSheetApp: AppModel? = null,
