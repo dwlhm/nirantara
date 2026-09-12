@@ -185,7 +185,8 @@ fun WidgetFlowGrid(
     modifier: Modifier = Modifier,
     showAddWidgetButton: Boolean = false,
     onAddWidgetClick: (() -> Unit)? = null,
-    onFinishEditing: (() -> Unit)? = null
+    onFinishEditing: (() -> Unit)? = null,
+    isScrollInProgress: Boolean = false
 ) {
     if (widgetIds.isEmpty() && !((showAddWidgetButton || isContainerEditing) && (onAddWidgetClick != null || onFinishEditing != null))) return
 
@@ -323,6 +324,7 @@ fun WidgetFlowGrid(
                                 span = itemSpan,
                                 customHeightDp = currentHeightDp,
                                 isEditing = isEditing,
+                                isScrollInProgress = isScrollInProgress,
                                 onLongPress = onTriggerContainerEdit,
                                 modifier = Modifier.fillMaxWidth()
                             )

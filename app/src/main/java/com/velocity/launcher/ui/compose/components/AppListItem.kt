@@ -299,35 +299,6 @@ fun AppListItem(
                 }
             }
         }
-
-        // Inline Widgets Grid (if present)
-        val isContainerEditing = activeEditingContainerKey == "app_${app.packageName}"
-        if ((app.popupWidgetIds.isNotEmpty() || isContainerEditing) && appWidgetHost != null && appWidgetManager != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .wrapContentHeight()
-            ) {
-                WidgetFlowGrid(
-                    widgetIds = app.popupWidgetIds,
-                    isContainerEditing = isContainerEditing,
-                    widgetsRevision = widgetsRevision,
-                    onTriggerContainerEdit = { onSetActiveEditingContainer("app_${app.packageName}") },
-                    getWidgetGridPlacement = getWidgetGridPlacement,
-                    onSaveWidgetGridPlacement = onSaveWidgetGridPlacement,
-                    onResetWidgetGridPlacement = onResetWidgetGridPlacement,
-                    getWidgetCustomHeight = getWidgetCustomHeight,
-                    onSaveWidgetCustomHeight = onSaveWidgetCustomHeight,
-                    onConfigureWidgetClick = onConfigureWidgetClick,
-                    onRemoveWidgetClick = { widgetId -> onRemoveWidgetClick(app.packageName, widgetId) },
-                    appWidgetHost = appWidgetHost,
-                    appWidgetManager = appWidgetManager,
-                    showAddWidgetButton = isContainerEditing,
-                    onAddWidgetClick = if (onAddWidgetClick != null) { { onAddWidgetClick(app) } } else null,
-                    onFinishEditing = { onSetActiveEditingContainer(null) }
-                )
-            }
-        }
     }
 }
 

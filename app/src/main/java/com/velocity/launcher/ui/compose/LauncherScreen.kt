@@ -10,11 +10,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -28,6 +32,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -43,7 +48,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -53,7 +57,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -64,6 +67,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
+import com.velocity.launcher.R
 import com.velocity.launcher.data.AppModel
 import com.velocity.launcher.data.BackgroundType
 import com.velocity.launcher.data.ColorTone
@@ -77,13 +81,11 @@ import com.velocity.launcher.ui.compose.components.HiddenAppsScreen
 import com.velocity.launcher.ui.compose.components.NirantaraHeader
 import com.velocity.launcher.ui.compose.components.NirantaraSearchSheet
 import com.velocity.launcher.ui.compose.components.NirantaraSettingsScreen
-import com.velocity.launcher.ui.compose.components.QuickLaunchCustomizerSheet
 import com.velocity.launcher.ui.compose.components.WaveAlphabetScrollbar
 import com.velocity.launcher.ui.compose.components.WavePhysicsEngine
+import com.velocity.launcher.ui.compose.components.WidgetFlowGrid
 import com.velocity.launcher.ui.compose.components.WidgetPickerDialog
 import com.velocity.launcher.ui.theme.SoftTextShadow
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private data class PendingWidgetConfig(
@@ -109,54 +111,20 @@ fun LauncherScreen(
     val focalOffsetDp = (screenHeight * 0.35f).coerceIn(160.dp, 320.dp)
     val focalOffsetPx = with(density) { focalOffsetDp.roundToPx() }
 
-    val bottomOverscrollThresholdPx = with(density) { 48.dp.toPx() }
-    var accumulatedBottomOverscroll by remember { mutableFloatStateOf(0f) }
-
-    val bottomOverscrollConnection = remember(bottomOverscrollThresholdPx, state.isSearchOpen, state.isSettingsOpen) {
+    val bottomOverscrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPostScroll(
                 consumed: Offset,
                 available: Offset,
                 source: NestedScrollSource
-            ): Offset {
-                if (available.y < 0f) {
-                    accumulatedBottomOverscroll += abs(available.y)
-                    if (accumulatedBottomOverscroll >= bottomOverscrollThresholdPx) {
-                        accumulatedBottomOverscroll = 0f
-                        if (!state.isSearchOpen && !state.isSettingsOpen) {
-                            viewModel.openSearch()
-                        }
-                    }
-                } else if (available.y > 0f || consumed.y > 0f) {
-                    accumulatedBottomOverscroll = 0f
-                }
-                return Offset.Zero
-            }
+            ): Offset = Offset.Zero
 
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                accumulatedBottomOverscroll = 0f
-                if (available.y < -1200f && !state.isSearchOpen && !state.isSettingsOpen) {
-                    viewModel.openSearch()
-                }
-                return super.onPostFling(consumed, available)
-            }
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = Velocity.Zero
         }
     }
-
-    var isolatedLetter by remember { mutableStateOf<String?>(null) }
-    var isolationJob by remember { mutableStateOf<Job?>(null) }
 
     BackHandler(enabled = state.activeEditingContainerKey != null) {
         viewModel.setActiveEditingContainer(null)
-    }
-
-    LaunchedEffect(listState.isScrollInProgress) {
-        if (listState.isScrollInProgress) {
-            if (isolatedLetter != null) {
-                isolatedLetter = null
-                isolationJob?.cancel()
-            }
-        }
     }
 
     val topSpacerHeight = when (state.topSpacingMode) {
@@ -420,20 +388,9 @@ fun LauncherScreen(
                 bottom = 16.dp
             )
         ) {
-            // 1. Home Area (Header and Favorites)
-            item(key = "home_area") {
-                val isHomeVisible = isolatedLetter == null || isolatedLetter == "★"
-                val homeAlpha by animateFloatAsState(
-                    targetValue = if (isHomeVisible) 1f else 0f,
-                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                    label = "homeAlpha"
-                )
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .graphicsLayer { alpha = homeAlpha }
-                ) {
+            // Item 1: Spacer + NirantaraHeader
+            item(key = "home_header") {
+                Column(modifier = Modifier.fillMaxWidth()) {
                     if (topSpacerHeight > 0.dp) {
                         Spacer(modifier = Modifier.height(topSpacerHeight))
                     }
@@ -457,11 +414,14 @@ fun LauncherScreen(
                         getWidgetCustomHeight = viewModel::getWidgetCustomHeight,
                         onSaveWidgetCustomHeight = viewModel::saveWidgetCustomHeight
                     )
-
                     Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
 
-                    // Pinned / Favorite Apps
-                    if (state.favoriteApps.isNotEmpty()) {
+            // Item 2: Favorites (hanya jika ada)
+            if (state.favoriteApps.isNotEmpty()) {
+                item(key = "home_favorites") {
+                    Column(modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -507,22 +467,50 @@ fun LauncherScreen(
                                 appWidgetManager = appWidgetManager
                             )
                         }
-
-                        Spacer(modifier = Modifier.height(16.dp))
                     }
+                }
+
+                // Widget dari favorite apps — masing-masing jadi item sendiri
+                state.favoriteApps.forEach { app ->
+                    if (app.popupWidgetIds.isNotEmpty() || state.activeEditingContainerKey == "app_${app.packageName}") {
+                        item(key = "widget_fav_${app.id}", contentType = "app_widget") {
+                            Box(modifier = Modifier
+                                .fillMaxWidth()
+                                .wrapContentHeight()
+                                .padding(horizontal = 16.dp)
+                            ) {
+                                WidgetFlowGrid(
+                                    widgetIds = app.popupWidgetIds,
+                                    isContainerEditing = state.activeEditingContainerKey == "app_${app.packageName}",
+                                    widgetsRevision = state.widgetsRevision,
+                                    onTriggerContainerEdit = { viewModel.setActiveEditingContainer("app_${app.packageName}") },
+                                    getWidgetGridPlacement = viewModel::getWidgetGridPlacement,
+                                    onSaveWidgetGridPlacement = viewModel::saveWidgetGridPlacement,
+                                    onResetWidgetGridPlacement = viewModel::resetWidgetGridPlacement,
+                                    getWidgetCustomHeight = viewModel::getWidgetCustomHeight,
+                                    onSaveWidgetCustomHeight = viewModel::saveWidgetCustomHeight,
+                                    onConfigureWidgetClick = { widgetId, providerInfo -> handleConfigureExistingWidget(widgetId, providerInfo) },
+                                    onRemoveWidgetClick = { widgetId -> viewModel.removeAppPopupWidget(app.packageName, widgetId, appWidgetHost) },
+                                    appWidgetHost = appWidgetHost,
+                                    appWidgetManager = appWidgetManager,
+                                    showAddWidgetButton = state.activeEditingContainerKey == "app_${app.packageName}",
+                                    onAddWidgetClick = { viewModel.openWidgetPicker(app) },
+                                    onFinishEditing = { viewModel.setActiveEditingContainer(null) },
+                                    isScrollInProgress = listState.isScrollInProgress
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item(key = "home_favorites_spacer") {
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
 
             // 2. Alphabetical All Apps Drawer Sections
             state.alphabetSections.forEach { section ->
                 item(key = "sec_header_${section.letter}") {
-                    val isSectionVisible = isolatedLetter == null || isolatedLetter == section.letter
-                    val sectionAlpha by animateFloatAsState(
-                        targetValue = if (isSectionVisible) 1f else 0f,
-                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                        label = "secAlpha_${section.letter}"
-                    )
-
                     Text(
                         text = section.letter,
                         style = LocalTextStyle.current.copy(shadow = SoftTextShadow),
@@ -530,19 +518,11 @@ fun LauncherScreen(
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier
-                            .graphicsLayer { alpha = sectionAlpha }
                             .padding(start = 24.dp, top = 12.dp, bottom = 4.dp)
                     )
                 }
 
                 items(section.apps, key = { "app_${it.id}" }) { app ->
-                    val isSectionVisible = isolatedLetter == null || isolatedLetter == section.letter
-                    val sectionAlpha by animateFloatAsState(
-                        targetValue = if (isSectionVisible) 1f else 0f,
-                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                        label = "secAlpha_${section.letter}_${app.id}"
-                    )
-
                     AppListItem(
                         app = app,
                         isFavoriteItem = false,
@@ -562,14 +542,132 @@ fun LauncherScreen(
                         onRemoveWidgetClick = { pkg, widgetId -> viewModel.removeAppPopupWidget(pkg, widgetId, appWidgetHost) },
                         onAddWidgetClick = { targetApp -> viewModel.openWidgetPicker(targetApp) },
                         appWidgetHost = appWidgetHost,
-                        appWidgetManager = appWidgetManager,
-                        modifier = Modifier.graphicsLayer { alpha = sectionAlpha }
+                        appWidgetManager = appWidgetManager
                     )
+                }
+
+                // Widget items — pisah, satu item per app yang punya widget
+                section.apps.forEach { app ->
+                    if (app.popupWidgetIds.isNotEmpty() || state.activeEditingContainerKey == "app_${app.packageName}") {
+                        item(key = "widget_${app.id}", contentType = "app_widget") {
+                            Box(modifier = Modifier
+                                .fillMaxWidth()
+                                .wrapContentHeight()
+                                .padding(horizontal = 16.dp) // samakan dengan padding AppListItem
+                            ) {
+                                WidgetFlowGrid(
+                                    widgetIds = app.popupWidgetIds,
+                                    isContainerEditing = state.activeEditingContainerKey == "app_${app.packageName}",
+                                    widgetsRevision = state.widgetsRevision,
+                                    onTriggerContainerEdit = { viewModel.setActiveEditingContainer("app_${app.packageName}") },
+                                    getWidgetGridPlacement = viewModel::getWidgetGridPlacement,
+                                    onSaveWidgetGridPlacement = viewModel::saveWidgetGridPlacement,
+                                    onResetWidgetGridPlacement = viewModel::resetWidgetGridPlacement,
+                                    getWidgetCustomHeight = viewModel::getWidgetCustomHeight,
+                                    onSaveWidgetCustomHeight = viewModel::saveWidgetCustomHeight,
+                                    onConfigureWidgetClick = { widgetId, providerInfo -> handleConfigureExistingWidget(widgetId, providerInfo) },
+                                    onRemoveWidgetClick = { widgetId -> viewModel.removeAppPopupWidget(app.packageName, widgetId, appWidgetHost) },
+                                    appWidgetHost = appWidgetHost,
+                                    appWidgetManager = appWidgetManager,
+                                    showAddWidgetButton = state.activeEditingContainerKey == "app_${app.packageName}",
+                                    onAddWidgetClick = { viewModel.openWidgetPicker(app) },
+                                    onFinishEditing = { viewModel.setActiveEditingContainer(null) },
+                                    isScrollInProgress = listState.isScrollInProgress
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
-            item(key = "bottom_focal_spacer") {
-                Spacer(modifier = Modifier.height(focalOffsetDp + 80.dp))
+            // Bottom shortcuts: Search & Settings
+            item(key = "bottom_shortcuts") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
+                ) {
+                        // Search shortcut
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.06f),
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                                )
+                                .clickable { viewModel.openSearch() }
+                                .padding(vertical = 14.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = androidx.compose.ui.res.painterResource(id = R.drawable.ic_search),
+                                contentDescription = "Search",
+                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.70f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Search",
+                                style = LocalTextStyle.current.copy(shadow = SoftTextShadow),
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.70f),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        // Settings shortcut
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.06f),
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                                )
+                                .clickable { viewModel.openSettingsScreen() }
+                                .padding(vertical = 14.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = androidx.compose.ui.res.painterResource(id = R.drawable.ic_settings),
+                                contentDescription = "Settings",
+                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.70f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Settings",
+                                style = LocalTextStyle.current.copy(shadow = SoftTextShadow),
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.70f),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                }
+            }
+
+            // Bottom app info
+            item(key = "bottom_app_info") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Nirantara",
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "v0.2.0",
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Normal
+                    )
+                }
             }
         }
 
@@ -583,41 +681,21 @@ fun LauncherScreen(
             hapticEnabled = state.hapticFeedbackEnabled,
             onLetterSelected = { letter ->
                 when (letter) {
-                    "🔍" -> {
-                        isolatedLetter = null
-                        isolationJob?.cancel()
-                        viewModel.openSearch()
-                    }
-                    "⚙" -> {
-                        isolatedLetter = null
-                        isolationJob?.cancel()
-                        viewModel.openSettingsScreen()
-                    }
+                    "🔍" -> viewModel.openSearch()
+                    "⚙" -> viewModel.openSettingsScreen()
                     else -> {
                         val targetIndex = viewModel.getScrollIndexForLetter(letter)
                         if (targetIndex != null) {
-                            isolatedLetter = letter
-                            isolationJob?.cancel()
-                            isolationJob = coroutineScope.launch {
+                            coroutineScope.launch {
                                 if (letter == "★") {
                                     listState.scrollToItem(0, 0)
                                 } else {
                                     listState.scrollToItem(targetIndex, -focalOffsetPx)
                                 }
-                                delay(1500L)
-                                isolatedLetter = null
                             }
                         }
                     }
                 }
-            },
-            getRadialAppsForLetter = viewModel::getRadialAppsForLetter,
-            getIconBitmap = viewModel::getIconBitmap,
-            onLaunchApp = { app ->
-                viewModel.launchApp(app)
-            },
-            onOpenRadialEditor = { letter ->
-                viewModel.openRadialEditor(letter)
             },
             modifier = Modifier
                 .fillMaxSize()
@@ -627,29 +705,22 @@ fun LauncherScreen(
         )
 
         // 4. Pop-up Shortcuts & Notifications (Swipe Right)
-        AnimatedVisibility(
-            visible = state.activePopupApp != null,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            state.activePopupApp?.let { app ->
-                AppShortcutsPopup(
-                    app = app,
-                    shortcuts = state.activePopupShortcuts,
-                    notifications = state.activePopupNotifications,
-                    hasShortcutHostPermission = state.hasShortcutHostPermission,
-                    isNotificationAccessGranted = state.isNotificationAccessGranted,
-                    focalOffsetDp = focalOffsetDp,
-                    getIconBitmap = viewModel::getIconBitmap,
-                    getShortcutIconBitmap = viewModel::getShortcutIconBitmap,
-                    onShortcutClick = viewModel::launchShortcut,
-                    onNotificationClick = viewModel::openNotification,
-                    onDismissNotification = viewModel::dismissNotification,
-                    onRequestNotificationAccess = viewModel::requestNotificationAccess,
-                    onOpenDefaultLauncherSettings = viewModel::openDefaultLauncherSettings,
-                    onDismissRequest = viewModel::closePopup
-                )
-            }
+        state.activePopupApp?.let { app ->
+            AppShortcutsPopup(
+                app = app,
+                shortcuts = state.activePopupShortcuts,
+                notifications = state.activePopupNotifications,
+                hasShortcutHostPermission = state.hasShortcutHostPermission,
+                isNotificationAccessGranted = state.isNotificationAccessGranted,
+                getIconBitmap = viewModel::getIconBitmap,
+                getShortcutIconBitmap = viewModel::getShortcutIconBitmap,
+                onShortcutClick = viewModel::launchShortcut,
+                onNotificationClick = viewModel::openNotification,
+                onDismissNotification = viewModel::dismissNotification,
+                onRequestNotificationAccess = viewModel::requestNotificationAccess,
+                onOpenDefaultLauncherSettings = viewModel::openDefaultLauncherSettings,
+                onDismissRequest = viewModel::closePopup
+            )
         }
 
         // 5. App Options BottomSheet (Swipe Left / Long Press)
@@ -686,8 +757,8 @@ fun LauncherScreen(
         // 6. Search Sheet (Learning History & Fuzzy Matching)
         AnimatedVisibility(
             visible = state.isSearchOpen,
-            enter = fadeIn(),
-            exit = fadeOut()
+            enter = fadeIn(animationSpec = tween(SEARCH_ENTER_DURATION_MS)) + slideInVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { it / SEARCH_SLIDE_DIVISOR },
+            exit = fadeOut(animationSpec = tween(SEARCH_EXIT_DURATION_MS)) + slideOutVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { it / SEARCH_SLIDE_DIVISOR }
         ) {
             NirantaraSearchSheet(
                 query = state.searchQuery,
@@ -781,22 +852,10 @@ fun LauncherScreen(
                 }
             )
         }
-
-        // 10. In-Situ Quick-Launch Customizer Sheet
-        state.activeEditingLetter?.let { letter ->
-            QuickLaunchCustomizerSheet(
-                letter = letter,
-                currentPinnedApps = viewModel.getRadialAppsForLetter(letter),
-                availableApps = viewModel.getAllAppsForLetter(letter),
-                getIconBitmap = viewModel::getIconBitmap,
-                onSave = { selectedApps ->
-                    viewModel.saveRadialConfiguration(letter, selectedApps)
-                },
-                onResetToAuto = {
-                    viewModel.resetRadialConfiguration(letter)
-                },
-                onDismissRequest = viewModel::closeRadialEditor
-            )
-        }
     }
 }
+
+private const val SEARCH_ENTER_DURATION_MS = 220
+private const val SEARCH_EXIT_DURATION_MS = 180
+private const val SEARCH_SLIDE_DIVISOR = 6
+

@@ -44,6 +44,8 @@ class ScrollAwareAppWidgetHostView(context: Context) : AppWidgetHostView(context
     private var startY = 0f
     private var isVerticallyScrollableTarget = false
     private var isHorizontallyScrollableTarget = false
+    private var verticalScrollableTarget: View? = null
+    private var horizontalScrollableTarget: View? = null
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -52,12 +54,10 @@ class ScrollAwareAppWidgetHostView(context: Context) : AppWidgetHostView(context
             MotionEvent.ACTION_DOWN -> {
                 startX = ev.x
                 startY = ev.y
-                isVerticallyScrollableTarget = findChild(this, ev.x, ev.y) { isVerticallyScrollable(it) } != null
-                isHorizontallyScrollableTarget = findChild(this, ev.x, ev.y) { isHorizontallyScrollable(it) } != null
-
-                if (isVerticallyScrollableTarget || isHorizontallyScrollableTarget) {
-                    parent?.requestDisallowInterceptTouchEvent(true)
-                }
+                verticalScrollableTarget = findChild(this, ev.x, ev.y) { isVerticallyScrollable(it) }
+                isVerticallyScrollableTarget = verticalScrollableTarget != null
+                horizontalScrollableTarget = findChild(this, ev.x, ev.y) { isHorizontallyScrollable(it) }
+                isHorizontallyScrollableTarget = horizontalScrollableTarget != null
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = ev.x - startX
@@ -67,9 +67,19 @@ class ScrollAwareAppWidgetHostView(context: Context) : AppWidgetHostView(context
 
                 if (absDx > touchSlop || absDy > touchSlop) {
                     if (absDy > absDx) {
-                        parent?.requestDisallowInterceptTouchEvent(isVerticallyScrollableTarget)
-                    } else if (absDx > absDy) {
-                        parent?.requestDisallowInterceptTouchEvent(isHorizontallyScrollableTarget)
+                        val targetView = verticalScrollableTarget
+                        val canScroll = targetView != null && (
+                            (dy < 0 && targetView.canScrollVertically(1)) ||
+                            (dy > 0 && targetView.canScrollVertically(-1))
+                        )
+                        parent?.requestDisallowInterceptTouchEvent(isVerticallyScrollableTarget && canScroll)
+                    } else {
+                        val targetView = horizontalScrollableTarget
+                        val canScroll = targetView != null && (
+                            (dx < 0 && targetView.canScrollHorizontally(1)) ||
+                            (dx > 0 && targetView.canScrollHorizontally(-1))
+                        )
+                        parent?.requestDisallowInterceptTouchEvent(isHorizontallyScrollableTarget && canScroll)
                     }
                 }
             }
@@ -77,6 +87,8 @@ class ScrollAwareAppWidgetHostView(context: Context) : AppWidgetHostView(context
                 parent?.requestDisallowInterceptTouchEvent(false)
                 isVerticallyScrollableTarget = false
                 isHorizontallyScrollableTarget = false
+                verticalScrollableTarget = null
+                horizontalScrollableTarget = null
             }
         }
         return super.dispatchTouchEvent(ev)

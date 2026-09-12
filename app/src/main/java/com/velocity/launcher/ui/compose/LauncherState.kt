@@ -56,7 +56,6 @@ data class LauncherState(
     val widgetPickerTargetApp: AppModel? = null,
     val isHiddenAppsOpen: Boolean = false,
     val isSettingsOpen: Boolean = false,
-    val activeEditingLetter: String? = null,
     val customRadialPins: Map<String, List<String>> = emptyMap(),
 
     // Settings

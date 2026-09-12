@@ -3,6 +3,12 @@ package com.velocity.launcher
 import com.velocity.launcher.ui.compose.components.WaveAlphabetLayoutCache
 import com.velocity.launcher.ui.compose.components.WavePhysicsEngine
 import com.velocity.launcher.ui.compose.components.WaveRenderBuffer
+import com.velocity.launcher.ui.compose.components.CriticalDampedSpringState
+import com.velocity.launcher.ui.compose.components.ACTION_LETTERS
+import com.velocity.launcher.ui.compose.components.DRAG_SPRING_ANGULAR_FREQUENCY
+import com.velocity.launcher.ui.compose.components.buildHighlightedText
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -15,14 +21,82 @@ class WaveAlphabetScrollbarTest {
     private val delta = 0.0001f
 
     @Test
+    fun testCriticalDampedSpring_convergesWithoutOvershoot() {
+        val state = CriticalDampedSpringState(position = 0f, velocity = 0f)
+        var previousError = 100f
+
+        repeat(30) {
+            WavePhysicsEngine.stepCriticallyDampedSpring(
+                state = state,
+                target = 100f,
+                dtSeconds = 1f / 60f
+            )
+            assertTrue("Spring should not overshoot its target", state.position in 0f..100f)
+            val error = 100f - state.position
+            assertTrue("Spring error should decrease monotonically", error <= previousError + delta)
+            previousError = error
+        }
+
+        assertTrue("Spring should settle close to target", state.position > 99f)
+    }
+
+    @Test
+    fun testCriticalDampedSpring_angularFrequency75_settlesWithinTwoToThreeFramesWithoutOvershoot() {
+        val state = CriticalDampedSpringState(position = 0f, velocity = 0f)
+        val target = 100f
+        val dt = 1f / 60f
+        var previousError = target
+
+        // Frame 1
+        WavePhysicsEngine.stepCriticallyDampedSpring(
+            state = state,
+            target = target,
+            dtSeconds = dt,
+            angularFrequency = 75f
+        )
+        assertTrue("Frame 1: Position must not overshoot", state.position in 0f..target)
+        val error1 = target - state.position
+        assertTrue("Frame 1: Error must decrease", error1 < previousError)
+        previousError = error1
+
+        // Frame 2
+        WavePhysicsEngine.stepCriticallyDampedSpring(
+            state = state,
+            target = target,
+            dtSeconds = dt,
+            angularFrequency = 75f
+        )
+        assertTrue("Frame 2: Position must not overshoot", state.position in 0f..target)
+        val error2 = target - state.position
+        assertTrue("Frame 2: Error must decrease", error2 < previousError)
+        previousError = error2
+
+        // Frame 3
+        WavePhysicsEngine.stepCriticallyDampedSpring(
+            state = state,
+            target = target,
+            dtSeconds = dt,
+            angularFrequency = 75f
+        )
+        assertTrue("Frame 3: Position must not overshoot", state.position in 0f..target)
+        val error3 = target - state.position
+        assertTrue("Frame 3: Error must decrease", error3 < previousError)
+
+        // Verifying rapid settling within 2-3 frames:
+        // By frame 3 (50ms at 60fps), spring reaches ~88.8% of target with zero overshoot
+        // (compared to only ~33% with default 24f frequency)
+        assertTrue("Spring must rapidly settle to ~88+% within 3 frames (position: ${state.position})", state.position >= 88f)
+    }
+
+    @Test
     fun testGaussianFactor_atCenter_returnsOne() {
-        val factor = WavePhysicsEngine.calculateGaussianFactor(distance = 0f, sigma = 90f)
+        val factor = WavePhysicsEngine.calculateGaussianFactor(distance = 0f, sigma = 130f)
         assertEquals(1.0f, factor, delta)
     }
 
     @Test
     fun testGaussianFactor_atOneSigma_returnsExpectedDecay() {
-        val sigma = 90f
+        val sigma = 130f
         val factor = WavePhysicsEngine.calculateGaussianFactor(distance = sigma, sigma = sigma)
         val expected = exp(-0.5f) // ~0.60653
         assertEquals(expected, factor, delta)
@@ -30,7 +104,7 @@ class WaveAlphabetScrollbarTest {
 
     @Test
     fun testGaussianFactor_atTwoSigma_returnsExpectedDecay() {
-        val sigma = 90f
+        val sigma = 130f
         val factor = WavePhysicsEngine.calculateGaussianFactor(distance = 2f * sigma, sigma = sigma)
         val expected = exp(-2.0f) // ~0.13533
         assertEquals(expected, factor, delta)
@@ -47,7 +121,7 @@ class WaveAlphabetScrollbarTest {
     @Test
     fun testWaveFactor_scaledByWaveProgress() {
         val distance = 0f
-        val sigma = 90f
+        val sigma = 130f
 
         val waveFactorZeroProgress = WavePhysicsEngine.calculateWaveFactor(distance, sigma, waveProgress = 0f)
         val waveFactorHalfProgress = WavePhysicsEngine.calculateWaveFactor(distance, sigma, waveProgress = 0.5f)
@@ -60,43 +134,43 @@ class WaveAlphabetScrollbarTest {
 
     @Test
     fun testDisplacement_rightSideDisplacesLeftward() {
-        val maxDisplacement = 38f
+        val maxDisplacement = 52f
         val displacementRight = WavePhysicsEngine.calculateDisplacement(
             waveFactor = 1.0f,
             maxDisplacementPx = maxDisplacement,
             isRightSide = true
         )
         // Right side moves inwards to the left (negative X)
-        assertEquals(-38f, displacementRight, delta)
+        assertEquals(-52f, displacementRight, delta)
     }
 
     @Test
     fun testDisplacement_leftSideDisplacesRightward() {
-        val maxDisplacement = 38f
+        val maxDisplacement = 52f
         val displacementLeft = WavePhysicsEngine.calculateDisplacement(
             waveFactor = 1.0f,
             maxDisplacementPx = maxDisplacement,
             isRightSide = false
         )
         // Left side moves inwards to the right (positive X)
-        assertEquals(38f, displacementLeft, delta)
+        assertEquals(52f, displacementLeft, delta)
     }
 
     @Test
-    fun testScaleCalculation_inactiveAndActive() {
-        // At rest
+    fun testScaleCalculation_alwaysStableScale() {
+        // Stable 1.0f scale across all states so letters on rail do not balloon or expand
         val scaleRestInactive = WavePhysicsEngine.calculateScale(waveFactor = 0f, isActive = false)
         assertEquals(1.0f, scaleRestInactive, delta)
 
         val scaleRestActive = WavePhysicsEngine.calculateScale(waveFactor = 0f, isActive = true)
-        assertEquals(1.2f, scaleRestActive, delta)
+        assertEquals(1.0f, scaleRestActive, delta)
 
         // At peak wave
         val scalePeakInactive = WavePhysicsEngine.calculateScale(waveFactor = 1.0f, isActive = false)
-        assertEquals(1.85f, scalePeakInactive, delta)
+        assertEquals(1.0f, scalePeakInactive, delta)
 
         val scalePeakActive = WavePhysicsEngine.calculateScale(waveFactor = 1.0f, isActive = true)
-        assertEquals(1.85f * 1.2f, scalePeakActive, delta)
+        assertEquals(1.0f, scalePeakActive, delta)
     }
 
     @Test
@@ -282,25 +356,28 @@ class WaveAlphabetScrollbarTest {
             activeIndex = 0
         )
 
-        // Index 0: active and at peak
+        // Index 0: active and at peak (scale remains stable 1.0f, isBold true because active)
         assertEquals(10f, buffer.centroids[0], delta)
         assertEquals(-30f, buffer.displacements[0], delta) // Right side: negative displacement
-        assertEquals(1.85f * 1.2f, buffer.scales[0], delta)
+        assertEquals(1.0f, buffer.scales[0], delta)
         assertEquals(1.0f, buffer.alphas[0], delta)
         assertTrue(buffer.isBold[0])
         assertFalse(buffer.isDot[0]) // Active is never dot
 
-        // Centroids for remaining items
-        assertEquals(30f, buffer.centroids[1], delta)
-        assertEquals(50f, buffer.centroids[2], delta)
-        assertEquals(70f, buffer.centroids[3], delta)
-        assertEquals(90f, buffer.centroids[4], delta)
+        // Centroids for remaining items: gentle vertical spreading pushes items away from touchY
+        val waveFactor1 = WavePhysicsEngine.calculateGaussianFactor(20f, sigmaPx) * waveProgress
+        val expectedSpread1 = WavePhysicsEngine.calculateVerticalDisplacement(20f, waveFactor1, itemHeightPx * 0.20f)
+        assertEquals(30f + expectedSpread1, buffer.centroids[1], delta)
+        assertTrue("Neighboring item should be repelled downwards away from touched index 0", buffer.centroids[1] > 30f)
+        assertEquals(1.0f, buffer.scales[1], delta)
+        assertFalse("waveFactor alone should not force bold on inactive items", buffer.isBold[1])
 
         // Far index 4 (dist = 80px = 2 sigma)
         val expectedWaveFactor4 = exp(-2.0f)
         assertEquals(-30f * expectedWaveFactor4, buffer.displacements[4], delta)
-        assertEquals(1.0f + 0.85f * expectedWaveFactor4, buffer.scales[4], delta)
+        assertEquals(1.0f, buffer.scales[4], delta)
         assertFalse(buffer.isDot[4]) // Anchor is never dot
+        assertFalse(buffer.isBold[4])
     }
 
     @Test
@@ -466,10 +543,10 @@ class WaveAlphabetScrollbarTest {
         assertTrue(buffer.isActive[2]) // "B"
         assertFalse(buffer.isActive[3]) // "C"
 
-        // Active items have scale 1.2f and alpha 1.0f at rest
-        assertEquals(1.2f, buffer.scales[0], delta)
+        // Active items have stable scale 1.0f and alpha 1.0f at rest
+        assertEquals(1.0f, buffer.scales[0], delta)
         assertEquals(1.0f, buffer.scales[1], delta)
-        assertEquals(1.2f, buffer.scales[2], delta)
+        assertEquals(1.0f, buffer.scales[2], delta)
         assertEquals(1.0f, buffer.scales[3], delta)
 
         assertEquals(1.0f, buffer.alphas[0], delta)
@@ -510,15 +587,15 @@ class WaveAlphabetScrollbarTest {
     }
 
     @Test
-    fun testRadialPhysicsEngine_breakoutAndCollapseThresholds() {
-        val breakoutDp = com.velocity.launcher.ui.compose.components.RadialPhysicsEngine.BREAKOUT_THRESHOLD_DP
-        val collapseDp = com.velocity.launcher.ui.compose.components.RadialPhysicsEngine.COLLAPSE_RAIL_THRESHOLD_DP
-        val deadZoneDp = com.velocity.launcher.ui.compose.components.RadialPhysicsEngine.DEAD_ZONE_RADIUS_DP
+    fun testCriticalDampedSpring_defaultAngularFrequencyIs24() {
+        val stateDefault = CriticalDampedSpringState(position = 0f, velocity = 0f)
+        val stateExplicit24 = CriticalDampedSpringState(position = 0f, velocity = 0f)
 
-        // Breakout must be significantly wider than collapse threshold to provide hysteresis
-        assertTrue("Breakout threshold ($breakoutDp) should be greater than collapse threshold ($collapseDp)", breakoutDp > collapseDp)
-        // Deadzone radius must be safe
-        assertTrue("Deadzone radius ($deadZoneDp) should be at least 25dp", deadZoneDp >= 25f)
+        WavePhysicsEngine.stepCriticallyDampedSpring(stateDefault, target = 100f, dtSeconds = 1f / 60f)
+        WavePhysicsEngine.stepCriticallyDampedSpring(stateExplicit24, target = 100f, dtSeconds = 1f / 60f, angularFrequency = 24f)
+
+        assertEquals(stateExplicit24.position, stateDefault.position, delta)
+        assertEquals(stateExplicit24.velocity, stateDefault.velocity, delta)
     }
 
     @Test
@@ -658,36 +735,6 @@ class WaveAlphabetScrollbarTest {
         assertEquals(360f, bottomSpacerHeight, delta)
     }
 
-    @Test
-    fun testIsolationVisibilityMatching_homeAndAlphabetSections() {
-        fun isHomeVisible(isolatedLetter: String?): Boolean = isolatedLetter == null || isolatedLetter == "★"
-        fun isSectionVisible(isolatedLetter: String?, sectionLetter: String): Boolean =
-            isolatedLetter == null || isolatedLetter == sectionLetter
-
-        // 1. Idle state (isolatedLetter == null): everything is visible
-        assertTrue(isHomeVisible(null))
-        assertTrue(isSectionVisible(null, "A"))
-        assertTrue(isSectionVisible(null, "M"))
-        assertTrue(isSectionVisible(null, "Z"))
-
-        // 2. Star selected (isolatedLetter == "★"): Home is visible, alphabet sections are hidden
-        assertTrue(isHomeVisible("★"))
-        assertFalse(isSectionVisible("★", "A"))
-        assertFalse(isSectionVisible("★", "M"))
-        assertFalse(isSectionVisible("★", "Z"))
-
-        // 3. Alphabet letter selected (e.g. "M"): Only section "M" is visible
-        assertFalse(isHomeVisible("M"))
-        assertFalse(isSectionVisible("M", "A"))
-        assertTrue(isSectionVisible("M", "M"))
-        assertFalse(isSectionVisible("M", "Z"))
-
-        // 4. Another alphabet letter selected (e.g. "A"): Only section "A" is visible
-        assertFalse(isHomeVisible("A"))
-        assertTrue(isSectionVisible("A", "A"))
-        assertFalse(isSectionVisible("A", "M"))
-        assertFalse(isSectionVisible("A", "Z"))
-    }
 
     @Test
     fun testListAlignment_scrollTargetAndOffsetCalculation() {
@@ -733,5 +780,281 @@ class WaveAlphabetScrollbarTest {
         // Unknown letter returns null
         assertNull(calculateScrollTarget("X", letterIndexMap::get, focalOffsetPx))
     }
-}
 
+    @Test
+    fun testWaveAlphabetLayoutCache_uniformMediumFontWeight() {
+        assertEquals(FontWeight.Medium, WaveAlphabetLayoutCache.NORMAL_FONT_WEIGHT)
+        assertEquals(FontWeight.Medium, WaveAlphabetLayoutCache.ANCHOR_FONT_WEIGHT)
+    }
+
+    @Test
+    fun testCalculateDistanceFromEdge_rightAndLeftSide() {
+        val railWidthPx = 44f
+
+        // Right side: rail touches screen right edge. Distance from screen right edge is railWidthPx - touchX
+        val rightEdgeDistance = WavePhysicsEngine.calculateDistanceFromEdge(
+            touchX = 44f,
+            railWidthPx = railWidthPx,
+            isRightSide = true
+        )
+        assertEquals(0f, rightEdgeDistance, delta)
+
+        val rightInwardDistance = WavePhysicsEngine.calculateDistanceFromEdge(
+            touchX = -56f,
+            railWidthPx = railWidthPx,
+            isRightSide = true
+        )
+        assertEquals(100f, rightInwardDistance, delta)
+
+        // Left side: rail touches screen left edge. Distance from screen left edge is touchX
+        val leftEdgeDistance = WavePhysicsEngine.calculateDistanceFromEdge(
+            touchX = 0f,
+            railWidthPx = railWidthPx,
+            isRightSide = false
+        )
+        assertEquals(0f, leftEdgeDistance, delta)
+
+        val leftInwardDistance = WavePhysicsEngine.calculateDistanceFromEdge(
+            touchX = 80f,
+            railWidthPx = railWidthPx,
+            isRightSide = false
+        )
+        assertEquals(80f, leftInwardDistance, delta)
+    }
+
+    @Test
+    fun testCalculateDynamicDisplacement_boundsAndClamping() {
+        val minDisplacement = 24f
+        val maxDisplacement = 200f
+
+        // Below minimum clamps to minDisplacement
+        val belowMin = WavePhysicsEngine.calculateDynamicDisplacement(
+            distanceFromEdgePx = 10f,
+            minDisplacementPx = minDisplacement,
+            maxDisplacementPx = maxDisplacement
+        )
+        assertEquals(minDisplacement, belowMin, delta)
+
+        // In-between follows distance accurately
+        val normal = WavePhysicsEngine.calculateDynamicDisplacement(
+            distanceFromEdgePx = 120f,
+            minDisplacementPx = minDisplacement,
+            maxDisplacementPx = maxDisplacement
+        )
+        assertEquals(120f, normal, delta)
+
+        // Above maximum clamps to maxDisplacement
+        val aboveMax = WavePhysicsEngine.calculateDynamicDisplacement(
+            distanceFromEdgePx = 350f,
+            minDisplacementPx = minDisplacement,
+            maxDisplacementPx = maxDisplacement
+        )
+        assertEquals(maxDisplacement, aboveMax, delta)
+    }
+
+    @Test
+    fun testCalculateDynamicDisplacement_withFingerClearance_clearsFingerBounds() {
+        val minDisplacement = 64f
+        val maxDisplacement = 200f
+        val fingerClearance = 44f
+
+        // At screen edge (distance = 0): 0 + 44 = 44, clamped up to minDisplacement (64f)
+        val edgeDisplacement = WavePhysicsEngine.calculateDynamicDisplacement(
+            distanceFromEdgePx = 0f,
+            minDisplacementPx = minDisplacement,
+            maxDisplacementPx = maxDisplacement,
+            fingerClearancePx = fingerClearance
+        )
+        assertEquals(minDisplacement, edgeDisplacement, delta)
+
+        // Dragged slightly inward (distance = 30): 30 + 44 = 74, clears finger bounds beyond touch point
+        val inwardDisplacement = WavePhysicsEngine.calculateDynamicDisplacement(
+            distanceFromEdgePx = 30f,
+            minDisplacementPx = minDisplacement,
+            maxDisplacementPx = maxDisplacement,
+            fingerClearancePx = fingerClearance
+        )
+        assertEquals(74f, inwardDisplacement, delta)
+        assertTrue("Displacement should clear finger position", inwardDisplacement > 30f)
+
+        // Dragged far inward: 180 + 44 = 224, clamped to maxDisplacement (200f)
+        val clampedDisplacement = WavePhysicsEngine.calculateDynamicDisplacement(
+            distanceFromEdgePx = 180f,
+            minDisplacementPx = minDisplacement,
+            maxDisplacementPx = maxDisplacement,
+            fingerClearancePx = fingerClearance
+        )
+        assertEquals(maxDisplacement, clampedDisplacement, delta)
+    }
+
+    @Test
+    fun testCalculateVerticalDisplacement_repulsionAwayFromTouch() {
+        val maxSpreadPx = 10f
+        val waveFactor = 0.8f
+
+        // Item below touch (deltaY > 0) is repelled downwards (positive displacement)
+        val belowTouch = WavePhysicsEngine.calculateVerticalDisplacement(
+            deltaY = 25f,
+            waveFactor = waveFactor,
+            maxSpreadPx = maxSpreadPx
+        )
+        assertEquals(maxSpreadPx * waveFactor, belowTouch, delta)
+
+        // Item above touch (deltaY < 0) is repelled upwards (negative displacement)
+        val aboveTouch = WavePhysicsEngine.calculateVerticalDisplacement(
+            deltaY = -25f,
+            waveFactor = waveFactor,
+            maxSpreadPx = maxSpreadPx
+        )
+        assertEquals(-maxSpreadPx * waveFactor, aboveTouch, delta)
+
+        // Item right at touch (deltaY == 0) does not move
+        val atTouch = WavePhysicsEngine.calculateVerticalDisplacement(
+            deltaY = 0f,
+            waveFactor = waveFactor,
+            maxSpreadPx = maxSpreadPx
+        )
+        assertEquals(0f, atTouch, delta)
+
+        // When wave is inactive (waveFactor == 0), no repulsion occurs
+        val waveZero = WavePhysicsEngine.calculateVerticalDisplacement(
+            deltaY = 25f,
+            waveFactor = 0f,
+            maxSpreadPx = maxSpreadPx
+        )
+        assertEquals(0f, waveZero, delta)
+    }
+
+    @Test
+    fun testCalculateBubbleX_followsWaveCrestDynamically() {
+        val bubbleSizePx = 34f
+        val bubbleGapPx = 12f
+        val screenWidth = 1080f
+
+        // Right side: crest at railLeftX + defaultCenterX + displacementPx
+        // displacementPx is negative on right side (moves left)
+        val railLeftXRight = 1000f
+        val defaultCenterXRight = 20f
+        val displacementRightRest = 0f
+        val bubbleXRightRest = WavePhysicsEngine.calculateBubbleX(
+            railLeftX = railLeftXRight,
+            defaultCenterX = defaultCenterXRight,
+            displacementPx = displacementRightRest,
+            bubbleSizePx = bubbleSizePx,
+            bubbleGapPx = bubbleGapPx,
+            isRightSide = true,
+            totalViewportWidthPx = screenWidth
+        )
+        // Crest is at 1020f, bubble sits to left: 1020 - 34 - 12 = 974f
+        assertEquals(1020f - bubbleSizePx - bubbleGapPx, bubbleXRightRest, delta)
+
+        // When displaced leftwards by 100px:
+        val displacementRightPulled = -100f
+        val bubbleXRightPulled = WavePhysicsEngine.calculateBubbleX(
+            railLeftX = railLeftXRight,
+            defaultCenterX = defaultCenterXRight,
+            displacementPx = displacementRightPulled,
+            bubbleSizePx = bubbleSizePx,
+            bubbleGapPx = bubbleGapPx,
+            isRightSide = true,
+            totalViewportWidthPx = screenWidth
+        )
+        // Crest is at 920f, bubble sits to left: 920 - 34 - 12 = 874f
+        assertEquals(920f - bubbleSizePx - bubbleGapPx, bubbleXRightPulled, delta)
+
+        // Left side: crest at railLeftX + defaultCenterX + displacementPx
+        val railLeftXLeft = 0f
+        val defaultCenterXLeft = 18f
+        val displacementLeftPulled = 80f
+        val bubbleXLeftPulled = WavePhysicsEngine.calculateBubbleX(
+            railLeftX = railLeftXLeft,
+            defaultCenterX = defaultCenterXLeft,
+            displacementPx = displacementLeftPulled,
+            bubbleSizePx = bubbleSizePx,
+            bubbleGapPx = bubbleGapPx,
+            isRightSide = false,
+            totalViewportWidthPx = screenWidth
+        )
+        // Crest is at 98f, bubble sits to right: 98 + 12 = 110f
+        assertEquals(98f + bubbleGapPx, bubbleXLeftPulled, delta)
+    }
+
+    @Test
+    fun testComputeTransforms_waveFactorDoesNotForceBold() {
+        val alphabetSize = 3
+        val buffer = WaveRenderBuffer(alphabetSize)
+        val isAnchor = booleanArrayOf(true, true, true)
+
+        WavePhysicsEngine.computeTransforms(
+            buffer = buffer,
+            itemCount = alphabetSize,
+            itemHeightPx = 20f,
+            animatedTouchY = 10f, // Center of index 0
+            waveProgress = 1.0f,
+            sigmaPx = 40f,
+            maxDisplacementPx = 30f,
+            isRightSide = true,
+            isCompact = false,
+            isAnchor = isAnchor,
+            activeIndex = -1 // No item active
+        )
+
+        // Index 0 has waveFactor = 1.0f (> 0.25f), but isBold must be FALSE because it's not active
+        assertFalse("waveFactor >= 0.25f must NOT force isBold", buffer.isBold[0])
+        assertFalse("waveFactor on item 1 must NOT force isBold", buffer.isBold[1])
+    }
+
+    @Test
+    fun testVerticalSpacing_preservesOrderAndPreventsOverlap() {
+        val count = 10
+        val buffer = WaveRenderBuffer(count)
+        val isAnchor = BooleanArray(count) { true }
+
+        // Test across multiple touch positions along the rail
+        val testTouchYs = listOf(0f, 25f, 75f, 100f, 150f, 190f)
+        for (touchY in testTouchYs) {
+            WavePhysicsEngine.computeTransforms(
+                buffer = buffer,
+                itemCount = count,
+                itemHeightPx = 20f,
+                animatedTouchY = touchY,
+                waveProgress = 1.0f,
+                sigmaPx = 40f,
+                maxDisplacementPx = 50f,
+                isRightSide = true,
+                isCompact = false,
+                isAnchor = isAnchor,
+                activeIndex = 2
+            )
+
+            // Verify monotonic strictly increasing centroids (no overlapping or order inversion)
+            for (i in 0 until count - 1) {
+                assertTrue(
+                    "Centroid at $i (${buffer.centroids[i]}) must be strictly less than at ${i + 1} (${buffer.centroids[i + 1]})",
+                    buffer.centroids[i] < buffer.centroids[i + 1]
+                )
+            }
+        }
+    }
+
+    @Test
+    fun testActionLetters_containsSearchAndSettings() {
+        assertTrue(ACTION_LETTERS.contains("🔍"))
+        assertTrue(ACTION_LETTERS.contains("⚙"))
+        assertFalse(ACTION_LETTERS.contains("A"))
+        assertFalse(ACTION_LETTERS.contains("Z"))
+    }
+
+    @Test
+    fun testBuildHighlightedText_highlightsMatchedSubstring() {
+        val highlighted = buildHighlightedText(
+            text = "Google Chrome",
+            query = "Chrome",
+            highlightColor = Color.Red,
+            normalColor = Color.White
+        )
+        assertEquals("Google Chrome", highlighted.text)
+        val styles = highlighted.spanStyles
+        assertTrue("Should have span styles for highlighted and normal text", styles.isNotEmpty())
+    }
+}

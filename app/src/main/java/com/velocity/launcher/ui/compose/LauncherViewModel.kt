@@ -25,6 +25,7 @@ import com.velocity.launcher.data.ThemeMode
 import com.velocity.launcher.data.TopSpacingMode
 import com.velocity.launcher.data.WallpaperColorExtractor
 import com.velocity.launcher.data.WidgetGridPlacement
+import com.velocity.launcher.ui.widget.WidgetSnapshotManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -380,6 +381,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun removeAppPopupWidget(packageName: String, widgetId: Int, appWidgetHost: AppWidgetHost? = null) {
         appWidgetHost?.deleteAppWidgetId(widgetId)
+        WidgetSnapshotManager.deleteSnapshot(getApplication(), widgetId)
         preferencesManager.removePopupWidgetForApp(packageName, widgetId)
         preferencesManager.setWidgetCustomHeight(widgetId, null)
         preferencesManager.setWidgetCustomSpan(widgetId, null)
@@ -444,6 +446,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun removeTopWidget(widgetId: Int, appWidgetHost: AppWidgetHost? = null) {
         appWidgetHost?.deleteAppWidgetId(widgetId)
+        WidgetSnapshotManager.deleteSnapshot(getApplication(), widgetId)
         preferencesManager.removeTopWidgetId(widgetId)
         preferencesManager.setWidgetCustomSpan(widgetId, null)
         preferencesManager.setWidgetCustomHeight(widgetId, null)
@@ -544,49 +547,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         repository.launchApp(app)
     }
 
-    fun getRadialAppsForLetter(letter: String): List<AppModel> {
-        if (letter == "★") {
-            val favs = _state.value.favoriteApps
-            if (favs.isNotEmpty()) {
-                return favs.take(4)
-            }
-            val freq = _state.value.frequentlyUsedApps
-            if (freq.isNotEmpty()) {
-                return freq.take(4)
-            }
-            return _state.value.allApps.take(4)
-        }
-        if (letter == "⚙" || letter == "🔍") {
-            return emptyList()
-        }
-
-        // Search across all installed apps whose first character matches this letter
-        val allAppsForLetter = _state.value.allApps.filter { app ->
-            val firstChar = app.label.firstOrNull()?.uppercaseChar() ?: '#'
-            val key = if (firstChar in 'A'..'Z') firstChar.toString() else "#"
-            key.equals(letter, ignoreCase = true)
-        }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
-
-        val pinnedPackageNames = preferencesManager.getCustomRadialPinsForLetter(letter)
-        val pinnedApps = pinnedPackageNames.mapNotNull { pkg ->
-            _state.value.allApps.firstOrNull { it.packageName == pkg }
-        }
-
-        if (pinnedApps.size >= 4) {
-            return pinnedApps.take(4)
-        }
-
-        // Auto-fill remaining slots with highest-ranked usage apps from this specific letter
-        val remainingCount = 4 - pinnedApps.size
-        val pinnedSet = pinnedApps.map { it.packageName }.toSet()
-        val autoFillApps = allAppsForLetter
-            .filter { it.packageName !in pinnedSet }
-            .sortedByDescending { repository.getLaunchCount(it.packageName) }
-            .take(remainingCount)
-
-        return pinnedApps + autoFillApps
-    }
-
     fun getAllAppsForLetter(letter: String): List<AppModel> {
         if (letter == "★") {
             val favs = _state.value.favoriteApps
@@ -597,34 +557,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             val key = if (firstChar in 'A'..'Z') firstChar.toString() else "#"
             key.equals(letter, ignoreCase = true)
         }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label })
-    }
-
-    fun openRadialEditor(letter: String) {
-        _state.update { it.copy(activeEditingLetter = letter) }
-    }
-
-    fun closeRadialEditor() {
-        _state.update { it.copy(activeEditingLetter = null) }
-    }
-
-    fun saveRadialConfiguration(letter: String, selectedApps: List<AppModel>) {
-        preferencesManager.setCustomRadialPinsForLetter(letter, selectedApps.map { it.packageName })
-        _state.update {
-            it.copy(
-                activeEditingLetter = null,
-                customRadialPins = preferencesManager.getCustomRadialPins()
-            )
-        }
-    }
-
-    fun resetRadialConfiguration(letter: String) {
-        preferencesManager.clearCustomRadialPinsForLetter(letter)
-        _state.update {
-            it.copy(
-                activeEditingLetter = null,
-                customRadialPins = preferencesManager.getCustomRadialPins()
-            )
-        }
     }
 
     fun launchShortcut(shortcut: ShortcutInfo) {
