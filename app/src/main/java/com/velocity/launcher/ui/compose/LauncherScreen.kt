@@ -141,7 +141,7 @@ fun LauncherScreen(
         Pair(indices, letters)
     }
 
-    val currentLetters by remember(scrollLookup, state.availableAlphabet) {
+    val currentLettersState = remember(scrollLookup, state.availableAlphabet) {
         derivedStateOf {
             val (indices, letters) = scrollLookup
             val fallback = setOfNotNull(state.availableAlphabet.firstOrNull())
@@ -163,7 +163,7 @@ fun LauncherScreen(
         }
     }
 
-    val focusedLetter by remember(scrollLookup, state.availableAlphabet) {
+    val focusedLetterState = remember(scrollLookup, state.availableAlphabet) {
         derivedStateOf {
             val (indices, letters) = scrollLookup
             val fallback = state.availableAlphabet.firstOrNull()
@@ -389,7 +389,7 @@ fun LauncherScreen(
             )
         ) {
             // Item 1: Spacer + NirantaraHeader
-            item(key = "home_header") {
+            item(key = "home_header", contentType = "header") {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     if (topSpacerHeight > 0.dp) {
                         Spacer(modifier = Modifier.height(topSpacerHeight))
@@ -420,7 +420,7 @@ fun LauncherScreen(
 
             // Item 2: Favorites (hanya jika ada)
             if (state.favoriteApps.isNotEmpty()) {
-                item(key = "home_favorites") {
+                item(key = "home_favorites", contentType = "favorites_section") {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier
@@ -449,9 +449,9 @@ fun LauncherScreen(
                                 app = app,
                                 isFavoriteItem = true,
                                 getIconBitmap = viewModel::getIconBitmap,
-                                onClick = { viewModel.launchApp(app) },
-                                onSwipeRight = { viewModel.openPopup(app) },
-                                onSwipeLeftOrLongPress = { viewModel.openBottomSheet(app) },
+                                onClick = remember(app) { { viewModel.launchApp(app) } },
+                                onSwipeRight = remember(app) { { viewModel.openPopup(app) } },
+                                onSwipeLeftOrLongPress = remember(app) { { viewModel.openBottomSheet(app) } },
                                 activeEditingContainerKey = state.activeEditingContainerKey,
                                 widgetsRevision = state.widgetsRevision,
                                 onSetActiveEditingContainer = { key -> viewModel.setActiveEditingContainer(key) },
@@ -510,7 +510,7 @@ fun LauncherScreen(
 
             // 2. Alphabetical All Apps Drawer Sections
             state.alphabetSections.forEach { section ->
-                item(key = "sec_header_${section.letter}") {
+                item(key = "sec_header_${section.letter}", contentType = "section_header") {
                     Text(
                         text = section.letter,
                         style = LocalTextStyle.current.copy(shadow = SoftTextShadow),
@@ -522,14 +522,18 @@ fun LauncherScreen(
                     )
                 }
 
-                items(section.apps, key = { "app_${it.id}" }) { app ->
+                items(
+                    items = section.apps,
+                    key = { "app_${it.id}" },
+                    contentType = { "app_item" }
+                ) { app ->
                     AppListItem(
                         app = app,
                         isFavoriteItem = false,
                         getIconBitmap = viewModel::getIconBitmap,
-                        onClick = { viewModel.launchApp(app) },
-                        onSwipeRight = { viewModel.openPopup(app) },
-                        onSwipeLeftOrLongPress = { viewModel.openBottomSheet(app) },
+                        onClick = remember(app) { { viewModel.launchApp(app) } },
+                        onSwipeRight = remember(app) { { viewModel.openPopup(app) } },
+                        onSwipeLeftOrLongPress = remember(app) { { viewModel.openBottomSheet(app) } },
                         activeEditingContainerKey = state.activeEditingContainerKey,
                         widgetsRevision = state.widgetsRevision,
                         onSetActiveEditingContainer = { key -> viewModel.setActiveEditingContainer(key) },
@@ -581,7 +585,7 @@ fun LauncherScreen(
             }
 
             // Bottom shortcuts: Search & Settings
-            item(key = "bottom_shortcuts") {
+            item(key = "bottom_shortcuts", contentType = "bottom_shortcuts") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -648,7 +652,7 @@ fun LauncherScreen(
             }
 
             // Bottom app info
-            item(key = "bottom_app_info") {
+            item(key = "bottom_app_info", contentType = "bottom_info") {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -675,8 +679,8 @@ fun LauncherScreen(
         WaveAlphabetScrollbar(
             position = state.scrollbarPosition,
             alphabet = state.availableAlphabet,
-            currentLetters = currentLetters,
-            focusedLetter = focusedLetter,
+            currentLetters = { currentLettersState.value },
+            focusedLetter = { focusedLetterState.value },
             verticalAlignment = state.scrollbarVerticalAlignment,
             hapticEnabled = state.hapticFeedbackEnabled,
             onLetterSelected = { letter ->

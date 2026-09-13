@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity() {
                     state.isWidgetPickerOpen -> viewModel.closeWidgetPicker()
                     state.activeBottomSheetApp != null -> viewModel.closeBottomSheet()
                     state.activePopupApp != null -> viewModel.closePopup()
+                    state.activeEditingContainerKey != null -> viewModel.setActiveEditingContainer(null)
                     else -> {
                         // Stay on launcher home
                     }

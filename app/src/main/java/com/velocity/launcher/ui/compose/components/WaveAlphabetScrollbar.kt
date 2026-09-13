@@ -30,6 +30,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -490,8 +491,8 @@ object WavePhysicsEngine {
 fun WaveAlphabetScrollbar(
     position: ScrollbarPosition,
     alphabet: List<String>,
-    currentLetters: Set<String> = emptySet(),
-    focusedLetter: String? = null,
+    currentLetters: () -> Set<String>,
+    focusedLetter: () -> String? = { null },
     verticalAlignment: ScrollbarVerticalAlignment = ScrollbarVerticalAlignment.BOTTOM,
     hapticEnabled: Boolean,
     onLetterSelected: (String) -> Unit,
@@ -548,10 +549,33 @@ fun WaveAlphabetScrollbar(
 }
 
 @Composable
+fun WaveAlphabetScrollbar(
+    position: ScrollbarPosition,
+    alphabet: List<String>,
+    currentLetters: Set<String> = emptySet(),
+    focusedLetter: String? = null,
+    verticalAlignment: ScrollbarVerticalAlignment = ScrollbarVerticalAlignment.BOTTOM,
+    hapticEnabled: Boolean,
+    onLetterSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    WaveAlphabetScrollbar(
+        position = position,
+        alphabet = alphabet,
+        currentLetters = { currentLetters },
+        focusedLetter = { focusedLetter },
+        verticalAlignment = verticalAlignment,
+        hapticEnabled = hapticEnabled,
+        onLetterSelected = onLetterSelected,
+        modifier = modifier
+    )
+}
+
+@Composable
 private fun SingleSideWaveScrollbar(
     alphabet: List<String>,
-    currentLetters: Set<String>,
-    focusedLetter: String? = null,
+    currentLetters: () -> Set<String>,
+    focusedLetter: () -> String? = { null },
     targetScrollbarHeight: Dp,
     isRightSide: Boolean,
     verticalAlignment: ScrollbarVerticalAlignment,
@@ -569,12 +593,16 @@ private fun SingleSideWaveScrollbar(
     val currentOnLetterSelected by rememberUpdatedState(onLetterSelected)
     val currentHapticEnabled by rememberUpdatedState(hapticEnabled)
 
-    val focusedIndex = remember(alphabet, focusedLetter, currentLetters) {
-        if (focusedLetter != null) {
-            val idx = alphabet.indexOf(focusedLetter)
-            if (idx >= 0) idx else alphabet.indexOfFirst { it in currentLetters }
-        } else {
-            alphabet.indexOfFirst { it in currentLetters }
+    val focusedIndex = remember(alphabet) {
+        derivedStateOf {
+            val focused = focusedLetter()
+            val current = currentLetters()
+            if (focused != null) {
+                val idx = alphabet.indexOf(focused)
+                if (idx >= 0) idx else alphabet.indexOfFirst { it in current }
+            } else {
+                alphabet.indexOfFirst { it in current }
+            }
         }
     }
 
@@ -679,15 +707,10 @@ private fun SingleSideWaveScrollbar(
             }
         }
 
-        LaunchedEffect(focusedIndex, isDragging, itemHeightPx) {
-            if (!isDragging && focusedIndex >= 0 && itemHeightPx > 0f) {
-                animatedTouchY.animateTo(
-                    targetValue = (focusedIndex + 0.5f) * itemHeightPx,
-                    animationSpec = spring(
-                        stiffness = 1200f,
-                        dampingRatio = Spring.DampingRatioNoBouncy
-                    )
-                )
+        LaunchedEffect(focusedIndex.value, isDragging, itemHeightPx) {
+            val targetIdx = focusedIndex.value
+            if (!isDragging && targetIdx >= 0 && itemHeightPx > 0f) {
+                animatedTouchY.snapTo((targetIdx + 0.5f) * itemHeightPx)
             }
         }
 
@@ -773,7 +796,7 @@ private fun SingleSideWaveScrollbar(
                         isAnchor = layoutCache.isAnchor,
                         activeIndex = if (isDragging) activeIndex else -1,
                         alphabet = alphabet,
-                        currentLetters = currentLetters
+                        currentLetters = currentLetters()
                     )
 
                     val defaultCenterX = if (isRightSide) {

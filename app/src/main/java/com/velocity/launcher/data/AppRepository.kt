@@ -31,8 +31,8 @@ class AppRepository(
     private val context: Context,
     private val preferencesManager: PreferencesManager = PreferencesManager(context)
 ) {
-    private val iconCache = LruCache<String, Drawable>(150)
-    private val bitmapCache = LruCache<String, ImageBitmap>(200)
+    private val iconCache = LruCache<String, Drawable>(ICON_CACHE_CAPACITY)
+    private val bitmapCache = LruCache<String, ImageBitmap>(BITMAP_CACHE_CAPACITY)
     private var cachedApps: List<AppModel> = emptyList()
 
     val currentApps: List<AppModel>
@@ -518,6 +518,11 @@ class AppRepository(
                 // Fallback
             }
         }
+    }
+
+    companion object {
+        private const val ICON_CACHE_CAPACITY = 500
+        private const val BITMAP_CACHE_CAPACITY = 500
     }
 }
 

@@ -175,13 +175,6 @@ fun AppListItem(
                                 longPressJob.cancel()
                             }
 
-                            if (isCancelled) {
-                                while (true) {
-                                    val passEvent = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Final)
-                                    if (passEvent.changes.all { !it.pressed }) break
-                                }
-                            }
-
                             val finalOffset = offsetX.value
                             if (isDrag) {
                                 coroutineScope.launch {
@@ -212,7 +205,6 @@ fun AppListItem(
                         translationX = offsetX.value
                     }
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
                     .drawBehind {
                         val currentOffset = offsetX.value
                         val color = when {
